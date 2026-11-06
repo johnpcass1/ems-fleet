@@ -4,10 +4,11 @@ For whoever looks after GEMA Fleet next.
 
 ## Who can do what
 
-- **Users screen** (fleet manager and system administrator): add a person, change role or bases, reset a password, deactivate. Only a system administrator can create or change system administrator accounts.
-- **Temporary passwords** are shown once on screen. The administrator gives them to the person directly. The system never emails or texts them. People must choose their own password at first login.
-- **Locked out?** After 10 wrong passwords an account is locked for 15 minutes. A forgotten password is fixed by an administrator with **Reset password**.
-- **Nobody can log in as administrator?** Create one from a computer that has this repository and is logged into Cloudflare: `npm run create-admin -- --email ... --name ... --remote`.
+- **Users screen** (fleet manager and system administrator): add a person, change role or bases, set a password, deactivate. Only a system administrator can create or change system administrator accounts.
+- **Adding a person.** Choose **Set a password now** (type one or press Generate, then hand it to them; they are not forced to change it, and the screen does not show it again) or, when email is set up, **Email an invite link** (they choose their own password; the list shows "Invited — not yet set up" until they do, with a **Resend invite** button). You can set a new password for anyone later with **Set password** (it logs them out everywhere). Everyone can change their own password with the **Password** button.
+- **Email is optional.** Without it the Users screen says "Email isn't set up, so you choose people's passwords here." With it, people get **Forgot password?** on the login page and you get **Send reset link**. Setup, limits and what to do if it stops working: [EMAIL.md](EMAIL.md).
+- **Locked out?** After 10 wrong passwords an account is locked for 15 minutes. A forgotten password is fixed with **Forgot password?** (if email is set up) or by an administrator with **Set password**.
+- **Nobody can log in as administrator?** Create one from a computer that has this repository and is logged into Cloudflare: `npm run create-admin -- --email ... --name ... --remote` (add `--invite` for a set-password link, or `--password-prompt` to type a password at a hidden prompt).
 
 ## Routine care
 
@@ -40,6 +41,7 @@ Every change a person makes is recorded in the `audit_log` table (who, what, bef
 Not built, and not needed to run the program today:
 
 - **Email alerts**, for example when a critical problem is reported. The hook already exists: `notifyIssueReported` in `src/worker/notify.ts` is called whenever a problem is reported and currently does nothing.
+- **Email alerts** about reported problems (the hook is `notifyIssueReported` in `src/worker/notify.ts`; sending support already exists in `src/worker/mail.ts`).
 - **A daily PM summary email** to fleet managers (what is overdue or due soon).
 - Fuel logging, GPS or telematics, offline use on tablets.
 - A custom domain and single sign-on, if the Ministry has an identity provider.

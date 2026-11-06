@@ -4,7 +4,7 @@ Fleet maintenance for the Guyana EMS ambulance program (GEMA). It tracks which a
 
 It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, and R2 file storage. It is built to fit Cloudflare's free plan for a fleet of about 20 to 50 ambulances and 50 to 100 users. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
-**Not included on purpose:** fuel tracking, GPS, email or text alerts, and offline mode. See [docs/HANDOVER.md](docs/HANDOVER.md) for ideas that could be added later.
+**Not included on purpose:** fuel tracking, GPS, email or text *alerts* (email for account setup and password reset is optional: see [docs/EMAIL.md](docs/EMAIL.md)), and offline mode. See [docs/HANDOVER.md](docs/HANDOVER.md) for ideas that could be added later.
 
 ## What people can do
 
@@ -18,7 +18,7 @@ It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, a
 | Dispatcher | The Dispatch screen only (which units are available), no costs or notes |
 | Viewer | Read only |
 
-These rules are enforced by the server, not just hidden in the screen. People log in with an email and password. There is no public sign-up: an administrator creates each account, and the screen shows a temporary password once, which the administrator hands to the person directly.
+These rules are enforced by the server, not just hidden in the screen. People log in with an email and password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
 
 ## Quick start on your own computer
 
@@ -31,7 +31,7 @@ npm run seed:demo                            # (optional) loads a demo fleet, in
 npm run create-admin -- --email you@example.org --name "Your Name"
 ```
 
-The last command prints a temporary password. Open http://localhost:8787, log in, and choose your own password.
+The last command prints a temporary password. Open http://localhost:8787, log in, and choose your own password. (Add `--password-prompt` to type the password at a hidden prompt instead, or `--invite` to get a set-password link.)
 
 Nothing in this project talks to Cloudflare until you deploy it yourself. The local database lives in the `.wrangler` folder and can be deleted at any time.
 
@@ -47,7 +47,7 @@ Nothing in this project talks to Cloudflare until you deploy it yourself. The lo
 | `npm run db:migrate` | Apply database changes locally (`:remote` and `:staging` for Cloudflare) |
 | `npm run seed:demo` | Load the demo fleet (marked as sample data) |
 | `npm run import:prototype -- <folder>` | Import data exported from the earlier prototype |
-| `npm run create-admin -- --email ... --name ... [--remote]` | Create a system administrator |
+| `npm run create-admin -- --email ... --name ... [--password-prompt \| --invite] [--remote]` | Create a system administrator (temporary password, hidden password prompt, or set-password link) |
 
 ## How it is built
 

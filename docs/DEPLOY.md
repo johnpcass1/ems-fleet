@@ -54,13 +54,17 @@ You need: a free Cloudflare account, a GitHub account with this repository, and 
    ```bash
    npm run deploy
    ```
-   Wrangler prints the address, like `https://gema-fleet.<your-name>.workers.dev`. Put it in `APP_URL` in `wrangler.jsonc` and deploy again. (`APP_URL` is used for the same-site security check.)
+   Wrangler prints the address, like `https://gema-fleet.<your-name>.workers.dev`. Put it in `APP_URL` in `wrangler.jsonc` and deploy again. (`APP_URL` is used for the same-site security check and, if you set up email, for the links in emails.)
 6. **Create the first administrator** (this writes to the live database):
    ```bash
    npm run create-admin -- --email you@example.org --name "Your Name" --remote
    ```
-   It prints a temporary password once. Open the site, log in, and choose your own password.
-7. **Add the real people** in the app under **Users**. For each person the app shows a temporary password once. **Hand it to them yourself** (in person or by phone). The app does not send email.
+   It prints a temporary password once. Open the site, log in, and choose your own password. (Or add `--password-prompt` to type a password at a hidden prompt, or `--invite` to get a set-password link.)
+7. **Add the real people** in the app under **Users**. For each person you choose a password and hand it to them yourself (in person or by phone); they can change it any time with the **Password** button. To let people choose their own passwords by email and reset forgotten ones, set up email after going live (next section).
+
+### Optional: email for account setup and password reset
+
+Once the app is live you can add email invites and a "Forgot password?" link. It needs a domain you control and a free Resend account, and takes about half an hour. Follow [EMAIL.md](EMAIL.md). Until then everything works with passwords chosen by an administrator.
 
 ### Optional: your own address
 
