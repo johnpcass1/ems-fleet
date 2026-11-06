@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 
-const PORT = 8799, BASE = `http://localhost:${PORT}`;
+let PORT = 8799, BASE = `http://localhost:${PORT}`, PERSIST = '.wrangler/e2e';
 const SHOTS = 'docs/screenshots';
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', ...opts });
 const log = (...a) => console.log(...a);
@@ -25,18 +25,21 @@ const PHOTO = png(2400, 1800); // big enough to exercise the client-side downsca
 
 /* ---------- server ---------- */
 let server;
-async function startServer() {
-  rmSync('.wrangler/e2e', { recursive: true, force: true });
-  const common = ['--persist-to', '.wrangler/e2e'];
+/** vars: extra --var NAME:value pairs. `email: true` turns on the development mail sink (see docs/EMAIL.md) so emails can be read back. */
+async function startServer({ port = 8799, persist = '.wrangler/e2e', email = false } = {}) {
+  PORT = port; BASE = `http://localhost:${PORT}`; PERSIST = persist;
+  rmSync(persist, { recursive: true, force: true });
+  const common = ['--persist-to', persist];
+  const vars = ['--var', 'PBKDF2_ITERATIONS:2000', ...(email ? ['--var', `APP_URL:${BASE}`, '--var', 'RESEND_API_KEY:re_e2e_not_a_real_key', '--var', 'MAIL_FROM:GEMA Fleet <no-reply@gema.test>', '--var', 'MAIL_SINK:1'] : [])];
   log('Building...');
   let r = sh('npx', ['vite', 'build'], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr);
   r = sh('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', ...common], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr);
   // the scripts use the default local state, so point them at the e2e one through an env var wrangler understands
-  server = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), ...common, '--var', 'PBKDF2_ITERATIONS:2000'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), ...common, ...vars], { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; server.stdout.on('data', (d) => (out += d)); server.stderr.on('data', (d) => (out += d));
   for (let i = 0; i < 90; i++) { try { if ((await fetch(BASE + '/api/health')).ok) break; } catch { /* not yet */ } await new Promise((r) => setTimeout(r, 1000)); if (i === 89) throw new Error('server did not start\n' + out); }
 }
-function d1(file) { const r = sh('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--persist-to', '.wrangler/e2e', '--file', file, '--yes'], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr); }
+function d1(file) { const r = sh('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--persist-to', PERSIST, '--file', file, '--yes'], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr); }
 
 /* ---------- checks ---------- */
 const results = [];
@@ -167,32 +170,61 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
     if (!/moved/.test(await toastText(page))) throw new Error('no moved toast');
   }, tag);
-  await check(page, 'users: create crew, dispatcher, mechanic', async () => {
+  await check(page, 'users: create crew, dispatcher, mechanic with chosen passwords', async () => {
     await page.goto(BASE + '/#users'); await page.waitForSelector('#addUser');
     await shot('13-users'); await noOverflow(page);
-    const mk = async (name, email, role) => {
+    if (!(await page.locator('#usersNote').innerText()).includes('Email isn’t set up, so you choose people’s passwords here')) throw new Error('email-not-set-up note missing');
+    const mk = async (name, email, role, how) => {
       await page.click('#addUser'); await page.waitForSelector('#userForm');
+      if (await page.locator('#uf-how-invite').count()) throw new Error('invite option offered although email is not set up');
       await page.fill('#uf-name', name); await page.fill('#uf-email', email); await page.selectOption('#uf-role', role);
       if (role === 'crew' || role === 'base_supervisor') await page.locator('input[name=ufb]').first().check();
       if (role === 'mechanic') await page.selectOption('#uf-mech', { index: 1 });
+      let pw;
+      if (how === 'generate') {
+        await page.click('#uf-gen');
+        pw = await page.inputValue('#uf-pw');
+        if (pw !== (await page.inputValue('#uf-pw2')) || !/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$/.test(pw)) throw new Error('generated password looks wrong: ' + pw);
+        await shot('14-add-user-password');
+        await noOverflow(page);
+      } else {
+        pw = `Typed-${role}-${tag}-9`;
+        await page.fill('#uf-pw', pw); await page.fill('#uf-pw2', pw);
+        if ((await page.getAttribute('#uf-pw', 'type')) !== 'password') throw new Error('password not hidden');
+        await page.click('#uf-show');
+        if ((await page.getAttribute('#uf-pw', 'type')) !== 'text') throw new Error('Show did not reveal the password');
+      }
       await page.click('#uf-save');
-      await page.waitForSelector('#tempPw');
-      const pw = (await page.textContent('#tempPw')).trim();
-      if (name.startsWith('Crew')) await shot('14-temp-password');
-      await page.click('#pwDone'); await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+      await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+      if (!/Account created\. Give .* their password\./.test(await toastText(page))) throw new Error('no confirmation toast');
+      if (await page.getByText(pw).count()) throw new Error('password is shown again after creation');
       return pw;
     };
-    secrets.crew = { email: `crew-${tag}@example.org`, pass: await mk('Crew ' + tag, `crew-${tag}@example.org`, 'crew') };
+    secrets.crew = { email: `crew-${tag}@example.org`, pass: await mk('Crew ' + tag, `crew-${tag}@example.org`, 'crew', 'generate') };
     secrets.disp = { email: `disp-${tag}@example.org`, pass: await mk('Dispatcher ' + tag, `disp-${tag}@example.org`, 'dispatcher') };
     secrets.mech = { email: `mech-${tag}@example.org`, pass: await mk('Mechanic ' + tag, `mech-${tag}@example.org`, 'mechanic') };
     if (!(await page.getByText(`crew-${tag}@example.org`).count())) throw new Error('new user not listed');
-    if (!(await page.getByText('hand temporary passwords', { exact: false }).count()) && !(await page.getByText('Give it to the person yourself').count())) throw new Error('hand-over notice missing');
+  }, tag);
+  await check(page, 'users: Set password for someone, no email actions without email', async () => {
+    const row = page.locator('#usersTable tr', { hasText: `disp-${tag}@example.org` });
+    if (await row.getByRole('button', { name: /reset link|resend invite/i }).count()) throw new Error('email actions shown although email is not set up');
+    await row.getByRole('button', { name: 'Set password' }).click();
+    await page.waitForSelector('#setPwForm'); await shot('14b-set-password'); await noOverflow(page);
+    await page.fill('#sp-pw', 'short'); await page.fill('#sp-pw2', 'short'); await page.click('#sp-save');
+    if (!/at least 10/i.test(await toastText(page))) throw new Error('weak password not refused');
+    await page.click('#sp-gen');
+    secrets.disp.pass = await page.inputValue('#sp-pw');
+    await page.click('#sp-save');
+    await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    if (!/Password set\./.test(await toastText(page))) throw new Error('no confirmation toast');
+    // your own row has no Set password button
+    if (await page.locator('#usersTable tr', { hasText: secrets.adminEmail }).getByRole('button', { name: 'Set password' }).count()) throw new Error('Set password offered for yourself');
   }, tag);
   await check(page, 'backups panel (system administrator)', async () => {
     await page.waitForSelector('#backupsPanel');
     await page.click('#backupNow');
     await page.waitForSelector('#backupsPanel a[download]', { timeout: 30000 });
-    await page.locator('#backupsPanel').scrollIntoViewIfNeeded();
+    await page.locator('#backupsPanel').scrollIntoViewIfNeeded().catch(() => {}); // the panel can redraw while it loads
     await shot('15-backups');
   }, tag);
   await check(page, 'logout', async () => { await logout(page); }, tag);
@@ -211,10 +243,8 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
   page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
   const shot = (n) => page.screenshot({ path: `${SHOTS}/${tag}-${n}.png` });
   const rec = secrets[who];
-  await check(page, `${kind}: first login forces a new password`, async () => {
+  await check(page, `${kind}: logs in with the password the administrator chose, no forced change`, async () => {
     await login(page, rec.email, rec.pass);
-    await forcedChange(page, rec.pass, rec.pass + '-new-9');
-    rec.pass = rec.pass + '-new-9';
     await page.waitForSelector(kind === 'dispatcher' ? '.wall, [data-act="open-unit"]' : '.tile', { timeout: 10000 });
   }, tag);
   if (kind === 'crew') {
@@ -264,6 +294,152 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
   await ctx.close();
 }
 
+
+/* ---------- email run: a second server with the development mail sink, so invite and reset emails can be read back ---------- */
+async function lastMail(to, subjectPart, notBefore = '') {
+  for (let i = 0; i < 40; i++) {
+    const j = await (await fetch(`${BASE}/api/dev/last-mail?to=${encodeURIComponent(to)}`)).json();
+    if (j.mail && j.mail.subject.includes(subjectPart) && j.mail.at > notBefore) return j.mail;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`no "${subjectPart}" email for ${to}`);
+}
+const linkIn = (mail) => { const m = /(https?:\/\/\S+\/set-password#t=[A-Za-z0-9_-]+)/.exec(mail.text); if (!m) throw new Error('no link in email'); return m[1]; };
+
+async function emailFlow(browser, cfg, secrets) {
+  const { tag, ...ctxOpts } = cfg; const t = 'em-' + tag;
+  log(`\n== email flow ${tag}`);
+  const mkPage = async () => {
+    const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(8000);
+    const errs = []; page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+    return { ctx, page, errs };
+  };
+  const shot = (page, n) => page.screenshot({ path: `${SHOTS}/${t}-${n}.png` });
+  const a = await mkPage();
+  const crew = { email: `invitee-${tag}@example.org`, name: 'Ines Invitee' };
+  let inviteLink = '';
+  await check(a.page, 'email: login page offers Forgot password', async () => {
+    await a.page.goto(BASE + '/'); await a.page.waitForSelector('#forgotLink');
+    await shot(a.page, '01-login'); await noOverflow(a.page);
+  }, t);
+  await check(a.page, 'email: admin invites a person by email (no password shown)', async () => {
+    await login(a.page, secrets.adminEmail, secrets.adminPass);
+    if (secrets.adminForced) { await forcedChange(a.page, secrets.adminPass, secrets.adminPass2); secrets.adminForced = false; secrets.adminPass = secrets.adminPass2; }
+    await a.page.waitForSelector('.tile');
+    await a.page.goto(BASE + '/#users'); await a.page.waitForSelector('#addUser');
+    if (!/or by emailing them a link/.test(await a.page.locator('#usersNote').innerText())) throw new Error('email note missing');
+    await a.page.click('#addUser'); await a.page.waitForSelector('#userForm');
+    await a.page.fill('#uf-name', crew.name); await a.page.fill('#uf-email', crew.email); await a.page.selectOption('#uf-role', 'crew');
+    await a.page.locator('input[name=ufb]').first().check();
+    if (!(await a.page.isChecked('#uf-how-pw'))) throw new Error('Set a password now is not the default');
+    await a.page.check('#uf-how-invite');
+    if (await a.page.locator('#uf-pwwrap').isVisible()) throw new Error('password fields still visible for an invite');
+    await shot(a.page, '02-add-user-invite'); await noOverflow(a.page);
+    await a.page.click('#uf-save');
+    await a.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    if (!new RegExp('Email sent to ' + crew.email).test(await toastText(a.page))) throw new Error('no "Email sent" toast: ' + (await toastText(a.page)));
+    const row = a.page.locator('#usersTable tr', { hasText: crew.email });
+    await row.getByText('Invited — not yet set up').waitFor();
+    if (!(await row.getByRole('button', { name: 'Resend invite' }).count())) throw new Error('no Resend invite');
+    await shot(a.page, '03-users-invited'); await noOverflow(a.page);
+    const mail = await lastMail(crew.email, 'Set up your GEMA Fleet account');
+    if (!mail.text.includes('Admin') && !mail.text.includes('E2E Admin')) throw new Error('inviter not named');
+    inviteLink = linkIn(mail);
+  }, t);
+  await check(a.page, 'email: Resend invite makes a new link and retires the old one', async () => {
+    const row = a.page.locator('#usersTable tr', { hasText: crew.email });
+    const before = new Date().toISOString();
+    await row.getByRole('button', { name: 'Resend invite' }).click();
+    const mail = await lastMail(crew.email, 'Set up your GEMA Fleet account', before);
+    const fresh = linkIn(mail);
+    if (fresh === inviteLink) throw new Error('same link');
+    secrets.oldInvite = inviteLink; inviteLink = fresh;
+  }, t);
+  await check(a.page, 'email: Send reset link shows for people who have a password', async () => {
+    const row = a.page.locator('#usersTable tr', { hasText: secrets.adminEmail });
+    if (!(await row.getByRole('button', { name: 'Send reset link' }).count())) throw new Error('no Send reset link');
+    if (await row.getByRole('button', { name: 'Set password' }).count()) throw new Error('Set password offered for yourself');
+  }, t);
+  await check(a.page, 'email: an old (replaced) link says it was used', async () => {
+    const b = await mkPage();
+    await b.page.goto(secrets.oldInvite); await b.page.waitForSelector('#sp-problem');
+    if (!/already used/i.test(await b.page.innerText('h1'))) throw new Error('heading: ' + await b.page.innerText('h1'));
+    if (b.page.url().includes('#t=')) throw new Error('token left in the address bar');
+    await shot(b.page, '04-link-used'); await noOverflow(b.page);
+    await b.ctx.close();
+  }, t);
+  await check(a.page, 'email: an expired link says ask your fleet manager', async () => {
+    const before = new Date().toISOString();
+    await a.page.click('#addUser'); await a.page.waitForSelector('#userForm');
+    await a.page.fill('#uf-name', 'Eddie Expired'); await a.page.fill('#uf-email', `expired-${tag}@example.org`); await a.page.selectOption('#uf-role', 'viewer');
+    await a.page.check('#uf-how-invite'); await a.page.click('#uf-save');
+    await a.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    const link = linkIn(await lastMail(`expired-${tag}@example.org`, 'Set up', before));
+    writeFileSync('.wrangler/e2e-exp.sql', "UPDATE account_tokens SET expires_at = '2020-01-01T00:00:00.000Z';"); d1('.wrangler/e2e-exp.sql'); rmSync('.wrangler/e2e-exp.sql');
+    const b = await mkPage();
+    await b.page.goto(link); await b.page.waitForSelector('#sp-problem');
+    if (!/Ask your fleet manager to send a new one\./.test(await b.page.innerText('#sp-problem'))) throw new Error('message: ' + await b.page.innerText('#sp-problem'));
+    await shot(b.page, '05-link-expired'); await noOverflow(b.page);
+    await b.ctx.close();
+    // the crew invite was expired too; ask for a fresh one for the next check
+    const row = a.page.locator('#usersTable tr', { hasText: crew.email });
+    const b2 = new Date().toISOString();
+    await row.getByRole('button', { name: 'Resend invite' }).click();
+    inviteLink = linkIn(await lastMail(crew.email, 'Set up', b2));
+  }, t);
+  await logout(a.page).catch(() => {});
+  await a.ctx.close();
+
+  const c = await mkPage();
+  await check(c.page, 'email: invite link, set password, land signed in', async () => {
+    await c.page.goto(inviteLink); await c.page.waitForSelector('#spForm');
+    if (c.page.url().includes('#t=') || !c.page.url().endsWith('/set-password')) throw new Error('fragment not cleared: ' + c.page.url());
+    if (!(await c.page.innerText('#sp-hello')).includes(`Hi ${crew.name}, choose a password for GEMA Fleet`)) throw new Error('greeting: ' + await c.page.innerText('#sp-hello'));
+    await shot(c.page, '06-set-password'); await noOverflow(c.page);
+    await c.page.fill('#sp-new', 'short'); await c.page.fill('#sp-new2', 'short'); await c.page.click('#sp-submit');
+    await c.page.waitForSelector('#sp-err:not([hidden])');
+    await c.page.fill('#sp-new', 'Invitee-chosen-pass-1'); await c.page.fill('#sp-new2', 'Invitee-chosen-pass-2'); await c.page.click('#sp-submit');
+    if (!/do not match/.test(await c.page.innerText('#sp-err'))) throw new Error('mismatch not reported');
+    await shot(c.page, '07-set-password-error'); await noOverflow(c.page);
+    await c.page.fill('#sp-new2', 'Invitee-chosen-pass-1'); await c.page.click('#sp-submit');
+    await c.page.waitForSelector('.tile');
+    if (!c.page.url().includes('#board')) throw new Error('did not land on the board: ' + c.page.url());
+    await shot(c.page, '08-landed'); await noOverflow(c.page);
+  }, t);
+  await check(c.page, 'email: Forgot password -> email -> new password -> signed in', async () => {
+    await logout(c.page);
+    await c.page.click('#forgotLink'); await c.page.waitForSelector('#forgotForm');
+    await shot(c.page, '09-forgot'); await noOverflow(c.page);
+    const before = new Date().toISOString();
+    await c.page.fill('#fg-email', crew.email); await c.page.click('#fg-submit');
+    await c.page.waitForSelector('#fg-done');
+    if (!/If that email has an account, we've sent a link to reset the password\./.test(await c.page.innerText('#fg-done'))) throw new Error('confirmation text');
+    await shot(c.page, '10-forgot-sent'); await noOverflow(c.page);
+    const mail = await lastMail(crew.email, 'Reset your GEMA Fleet password', before);
+    await c.page.goto(linkIn(mail)); await c.page.waitForSelector('#spForm');
+    if (!(await c.page.innerText('h1')).includes('Reset your password')) throw new Error('reset heading');
+    await shot(c.page, '11-reset'); await noOverflow(c.page);
+    await c.page.fill('#sp-new', 'Invitee-reset-pass-3'); await c.page.fill('#sp-new2', 'Invitee-reset-pass-3'); await c.page.click('#sp-submit');
+    await c.page.waitForSelector('.tile');
+    await logout(c.page);
+    await login(c.page, crew.email, 'Invitee-reset-pass-3');
+    await c.page.waitForSelector('.tile');
+    // the previous password no longer works
+    await logout(c.page);
+    await c.page.fill('#lg-email', crew.email); await c.page.fill('#lg-pass', 'Invitee-chosen-pass-1'); await c.page.click('#lg-submit');
+    await c.page.waitForSelector('#lg-err:not([hidden])');
+    c.errs.length = 0; // the deliberate wrong password is logged by the browser as a 401
+  }, t);
+  await check(c.page, 'email: forgot password for an unknown address shows the same confirmation', async () => {
+    await c.page.fill('#lg-email', ''); await c.page.click('#forgotLink'); await c.page.waitForSelector('#forgotForm');
+    await c.page.fill('#fg-email', 'nobody-here@example.org'); await c.page.click('#fg-submit');
+    await c.page.waitForSelector('#fg-done');
+    if (!/If that email has an account/.test(await c.page.innerText('#fg-done'))) throw new Error('different text');
+  }, t);
+  await check(c.page, 'email: no console errors', async () => { if (c.errs.length) throw new Error(c.errs.slice(0, 3).join(' | ')); }, t);
+  await c.ctx.close();
+}
+
 /* ---------- main ---------- */
 (async () => {
   mkdirSync(SHOTS, { recursive: true });
@@ -300,8 +476,19 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
     await roleFlow(browser, ctxOpts, tag, 'disp', secrets, 'dispatcher');
     await roleFlow(browser, ctxOpts, tag, 'mech', secrets, 'mechanic');
   }
-  await browser.close();
   server.kill('SIGTERM'); sh('pkill', ['-f', 'workerd']);
+  if (!process.env.E2E_SKIP_EMAIL) {
+    await startServer({ port: 8798, persist: '.wrangler/e2e-email', email: true });
+    const sq = sh('npx', ['tsx', 'scripts/e2e-seed.ts'], { encoding: 'utf8' });
+    if (sq.status) throw new Error(sq.stderr);
+    writeFileSync('.wrangler/e2e-seed.sql', sq.stdout); d1('.wrangler/e2e-seed.sql'); rmSync('.wrangler/e2e-seed.sql');
+    const es = { adminEmail: 'admin@example.org', adminPass: 'Temp-pass-1234', adminPass2: 'E2E-admin-pass-77', adminForced: true };
+    for (const cfg of configs.filter((c) => c.tag.endsWith('light') && (!process.env.E2E_ONLY || c.tag.includes(process.env.E2E_ONLY)))) {
+      await emailFlow(browser, cfg, es);
+    }
+    server.kill('SIGTERM'); sh('pkill', ['-f', 'workerd']);
+  }
+  await browser.close();
   log(`\n${results.filter((r) => r[0] === 'ok').length} checks passed, ${failures} failed.`);
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); try { server?.kill('SIGTERM'); } catch { /* ignore */ } process.exit(2); });

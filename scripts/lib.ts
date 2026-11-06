@@ -39,3 +39,26 @@ export function query(sql: string, t: Target): any[] {
   const j = JSON.parse(out.slice(out.indexOf('[')));
   return j[0]?.results ?? [];
 }
+
+/** Asks a question and reads the answer without showing it on screen (so it stays out of the terminal and out of shell history). */
+export function promptHidden(question: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stdin = process.stdin;
+    if (!stdin.isTTY) { reject(new Error('--password-prompt needs an interactive terminal.')); return; }
+    process.stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    let s = '';
+    const done = () => { stdin.setRawMode(false); stdin.pause(); stdin.removeListener('data', onData); process.stdout.write('\n'); };
+    const onData = (ch: string) => {
+      for (const c of ch) {
+        if (c === '\r' || c === '\n' || c === '\u0004') { done(); resolve(s); return; }
+        if (c === '\u0003') { done(); reject(new Error('Cancelled.')); return; }
+        if (c === '\u007f' || c === '\b') s = s.slice(0, -1);
+        else s += c;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
