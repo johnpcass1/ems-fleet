@@ -1,6 +1,7 @@
 /** Drawers and the confirm dialog. They live outside #view so data refreshes never wipe a form. */
 import { ui } from './state';
 import { $, esc } from './util';
+import { icon } from './icons';
 
 let lastFocus: any = null;
 /** Where "Back" goes when one drawer was opened from inside another. */
@@ -11,7 +12,7 @@ export function showDrawer(title: string, html: string, opts: { wide?: boolean; 
   ui.drawer = opts.drawer || null;
   if (!opts.drawer) drawerBack.length = 0;
   $('#drawerRoot').innerHTML = `<div class="scrim" data-act="close-drawer"></div><aside class="drawer${opts.wide ? ' wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dTitle">
-    <div class="dhead"><div class="dtitle">${opts.back ? `<button class="btn link back" type="button" data-act="drawer-back" id="dBack">${esc(opts.back)}</button>` : ''}<h2 id="dTitle">${esc(title)}</h2></div><button class="btn sm" type="button" id="dClose" data-act="close-drawer">Close</button></div><div class="dbody" id="dBody">${html}</div></aside>`;
+    <div class="dhead"><div class="dtitle">${opts.back ? `<button class="btn link back" type="button" data-act="drawer-back" id="dBack">${icon('left')}${esc(opts.back)}</button>` : ''}<h2 id="dTitle">${esc(title)}</h2></div><button class="iconbtn" type="button" id="dClose" data-act="close-drawer" aria-label="Close" title="Close">${icon('x')}</button></div><div class="dbody" id="dBody">${html}</div></aside>`;
   const first = $('#dBody input:not([type=hidden]):not(.sr),#dBody select,#dBody textarea');
   (opts.focusClose || !first ? $('#dClose') : first).focus();
 }

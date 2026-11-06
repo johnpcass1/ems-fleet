@@ -4,7 +4,8 @@ import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal,
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
 import { D, LST, ui, S, can, canWo, canPlan, settings, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
 import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
-import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip } from './bits';
+import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip, pageHead, actBtn, emptyState } from './bits';
+import { icon } from './icons';
 import { VIEWS, VT } from './registry';
 import { fileUrl, safeAsset, UP, pending, setProgressHook, normalizeFile, fileType } from './files';
 import { woHead, woRows } from './views-a';
@@ -21,14 +22,14 @@ VIEWS.pm=function(){
   const comp=basesSorted().map(b=>{
     const ws=LST.workOrders.filter(w=>w.type==='preventive'&&['completed','closed'].includes(w.status)&&w.completedAt&&Date.parse(w.completedAt)>=since&&baseOfV(w.vehicleId)===b.id);
     const on=ws.filter(w=>!(w.overdueAtOpen>0)).length;return{b,n:ws.length,on,late:ws.length-on};});
-  return `<div class="vhead"><h1>PM queue</h1><div class="sub">Tasks that are due soon or overdue across the fleet</div></div>
+  return `${pageHead('PM queue',{sub:'Tasks that are due soon or overdue across the fleet'})}
   <div class="filters"><div class="f2"><label for="f-pm-base">Base</label>${selHtml('f-pm-base',baseOpts(true),f.base,'data-filter="pm.base"')}</div></div>
-  <div class="panel" style="padding:0"><div class="tscroll"><table class="t"><thead><tr><th>Unit</th><th>Base</th><th>Task</th><th>Remaining</th><th>Next due</th><th>Projected</th><th>State</th><th></th></tr></thead><tbody>
+  <div class="panel"><div class="tscroll"><table class="t"><thead><tr><th>Unit</th><th>Base</th><th>Task</th><th>Remaining</th><th>Next due</th><th>Projected</th><th>State</th><th></th></tr></thead><tbody>
   ${rows.map(({v,st})=>`<tr><td><button class="ulink" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button></td><td>${esc(baseName(v.baseId))}</td><td>${esc(st.task.name)}</td><td>${esc(remText(st))}</td>
   <td>${[st.nextDueHours!=null?num(st.nextDueHours)+' h':'',st.nextDueDate?fmtDate(st.nextDueDate):''].filter(Boolean).join(' / ')||'Now'}</td><td>${st.projected?fmtDate(st.projected):'–'}</td><td>${pmPill(st.state)}</td>
-  <td>${can('createWO',v)?`<button class="btn sm" data-act="pm-wo" data-id="${esc(v.id)}" id="pmwo-${esc(v.id)}-${esc(st.task.id)}">Create work order</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Nothing is due. All PM is up to date.</td></tr>'}
+  <td class="c-act">${can('createWO',v)?`<button class="btn sm" data-act="pm-wo" data-id="${esc(v.id)}" id="pmwo-${esc(v.id)}-${esc(st.task.id)}">Create work order</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Nothing is due. All PM is up to date.</td></tr>'}
   </tbody></table></div></div>
-  <div class="panel"><h2>PM compliance, last 90 days</h2><p class="small muted">A completed PM work order counts as on time when none of its tasks were overdue when it was opened.</p>
+  <div class="panel"><div class="ph"><h2>PM compliance, last 90 days</h2></div><div class="pn small muted">A completed PM work order counts as on time when none of its tasks were overdue when it was opened.</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Base</th><th class="n">Completed</th><th class="n">On time</th><th class="n">Late</th><th class="n">On-time rate</th></tr></thead><tbody>
   ${comp.map(c=>`<tr><td>${esc(c.b.name)}</td><td class="n">${c.n}</td><td class="n">${c.on}</td><td class="n">${c.late}</td><td class="n">${c.n?Math.round(c.on/c.n*100)+'%':'–'}</td></tr>`).join('')}</tbody></table></div></div>`;
 };
@@ -41,30 +42,28 @@ VIEWS.issues=function(){
   list.sort((a,b)=>Date.parse(b.reportedAt)-Date.parse(a.reportedAt));
   const selOk=ui.selIssues.filter(id=>D.issues[id]&&D.issues[id].status==='open');
   const sameVeh=selOk.length>0&&new Set(selOk.map(id=>D.issues[id].vehicleId)).size===1;
-  return `<div class="vhead"><h1>Issues</h1><div class="row">
-    ${can('report')?'<button class="btn primary" data-act="report-issue" id="issReport">Report a problem</button>':''}
-    ${can('issues')?`<button class="btn" data-act="wo-from-issues" id="issWo" ${sameVeh?'':'disabled'}>Create work order from ${selOk.length||''} selected</button>`:''}</div></div>
+  return `${pageHead('Issues',{acts:(can('issues')?`<button class="btn" data-act="wo-from-issues" id="issWo" ${sameVeh?'':'disabled'}>Create work order from ${selOk.length||''} selected</button>`:'')+(can('report')?actBtn('Report a problem',{id:'issReport',act:'report-issue',primary:true,icon:'alert'}):'')})}
   <div class="filters"><div class="f2"><label for="f-issues-status">Status</label>${selHtml('f-issues-status',ISSUE_FILTER,f.status,'data-filter="issues.status"')}</div>
   <div class="f2"><label for="f-issues-severity">Severity</label>${selHtml('f-issues-severity',[['','All severities'],['critical','Critical'],['major','Major'],['minor','Minor']],f.severity,'data-filter="issues.severity"')}</div>
   <div class="f2"><label for="f-issues-base">Base</label>${selHtml('f-issues-base',baseOpts(true),f.base,'data-filter="issues.base"')}</div></div>
   ${can('issues')&&selOk.length>1&&!sameVeh?'<div class="warnbox">Pick problems from one unit only to make a work order.</div>':''}
-  <div class="panel" style="padding:0"><div class="tscroll"><table class="t"><thead><tr>${can('issues')?'<th><span class="sr">Select</span></th>':''}<th>Unit</th><th>Problem</th><th>Severity</th><th>Status</th><th>Reported</th>${can('issues')?'<th></th>':''}</tr></thead><tbody>
-  ${list.map(i=>`<tr class="stripe sev-${esc(i.severity)}">${can('issues')?`<td>${i.status==='open'?`<input type="checkbox" id="sel-${esc(i.id)}" data-sel="${esc(i.id)}" aria-label="Select ${esc(i.title)}" ${ui.selIssues.includes(i.id)?'checked':''}>`:''}</td>`:''}
+  <div class="panel"><div class="tscroll"><table class="t"><thead><tr>${can('issues')?'<th class="chkcol"><span class="sr">Select</span></th>':''}<th>Unit</th><th>Problem</th><th>Severity</th><th>Status</th><th>Reported</th>${can('issues')?'<th></th>':''}</tr></thead><tbody>
+  ${list.map(i=>`<tr>${can('issues')?`<td class="chkcol">${i.status==='open'?`<input type="checkbox" id="sel-${esc(i.id)}" data-sel="${esc(i.id)}" aria-label="Select ${esc(i.title)}" ${ui.selIssues.includes(i.id)?'checked':''}>`:''}</td>`:''}
   <td><button class="ulink" data-act="open-vehicle" data-id="${esc(i.vehicleId)}">${esc(unitOf(i.vehicleId))}</button><div class="tiny muted">${esc(baseName(baseOfV(i.vehicleId)))}</div></td>
   <td><button class="btn link" data-act="open-issue" data-id="${esc(i.id)}" id="oi-${esc(i.id)}"><b>${esc(i.title)}</b></button>${attChip(i)}<div class="small muted">${esc(i.description||'')}</div>${thumbStrip(i)}</td><td>${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}</td>
-  <td>${esc(ISSUE_ST[i.status]||i.status)}${i.woId&&D.workOrders[i.woId]?`<div><button class="btn link" data-act="open-wo" data-id="${esc(i.woId)}">${esc(D.workOrders[i.woId].number)}</button></div>`:''}</td>
+  <td>${esc(ISSUE_ST[i.status]||i.status)}${i.woId&&D.workOrders[i.woId]?`<div><button class="btn link mono-s" data-act="open-wo" data-id="${esc(i.woId)}">${esc(D.workOrders[i.woId].number)}</button></div>`:''}</td>
   <td>${fmtDate(i.reportedAt)}<div class="tiny muted">${esc(nameOf(i.by))}</div></td>
-  ${can('issues')?`<td>${i.status==='open'?`<button class="btn sm danger" data-act="dismiss-issue" data-id="${esc(i.id)}" id="dis-${esc(i.id)}">Dismiss</button>`:''}</td>`:''}</tr>`).join('')||`<tr><td colspan="7" class="muted">No problems match these filters.</td></tr>`}
+  ${can('issues')?`<td>${i.status==='open'?`<button class="btn sm ghost danger" data-act="dismiss-issue" data-id="${esc(i.id)}" id="dis-${esc(i.id)}">Dismiss</button>`:''}</td>`:''}</tr>`).join('')||`<tr><td colspan="7" class="muted">No problems match these filters.</td></tr>`}
   </tbody></table></div></div>`;
 };
 function photoBlockHtml(){
-  return `<div style="margin-bottom:12px"><div class="row"><input class="sr" type="file" id="ri-photos" accept="image/jpeg,image/png,image/webp" multiple><label class="btn primary attlabel" for="ri-photos">Add photo</label>
-    <input class="sr" type="file" id="ri-pdf" accept="application/pdf,.pdf" multiple><label class="btn attlabel" for="ri-pdf">Attach PDF</label></div>
+  return `<div style="margin-bottom:12px"><div class="row"><input class="sr" type="file" id="ri-photos" accept="image/jpeg,image/png,image/webp" multiple><label class="btn attlabel" for="ri-photos">${icon('image')}Add photo</label>
+    <input class="sr" type="file" id="ri-pdf" accept="application/pdf,.pdf" multiple><label class="btn attlabel" for="ri-pdf">${icon('file')}Attach PDF</label></div>
     <div id="ri-thumbs" class="pths" aria-live="polite"></div><div class="tiny muted" style="margin-top:4px">Photos are shrunk before they are sent. Files up to 20 MB each.</div></div>`;
 }
 export function renderThumbs(){
   const box=$('#ri-thumbs');if(!box)return;
-  box.innerHTML=pending.map((p,i)=>`<div class="pth">${p.preview?`<img src="${esc(p.preview)}" alt="Photo ${i+1}">`:`<span class="ficon">PDF</span>`}<span class="tiny nm">${esc(p.file.name)}</span><button type="button" class="btn sm" data-act="ri-rm" data-i="${i}" id="ri-rm-${i}" aria-label="Remove ${esc(p.file.name)}">\u00d7</button></div>`).join('');
+  box.innerHTML=pending.map((p,i)=>`<div class="pth">${p.preview?`<img src="${esc(p.preview)}" alt="Photo ${i+1}">`:`<span class="ficon">PDF</span>`}<span class="tiny nm">${esc(p.file.name)}</span><button type="button" class="btn sm" data-act="ri-rm" data-i="${i}" id="ri-rm-${i}" aria-label="Remove ${esc(p.file.name)}">${icon('x')}</button></div>`).join('');
 }
 export async function addPending(files){
   for(const f of files){
@@ -124,13 +123,13 @@ VIEWS['work-orders']=function(){
   const f=ui.f.wo;
   const list=LST.workOrders.filter(w=>f.status==='all'||(f.status==='active'?WO_ACTIVE.includes(w.status)||w.status==='completed':w.status===f.status)).sort((a,b)=>Date.parse(b.openedAt)-Date.parse(a.openedAt));
   const cols=['open','approved','scheduled','in_progress','on_hold','completed'].concat(f.status==='all'||f.status==='closed'?['closed']:[]).concat(f.status==='all'||f.status==='cancelled'?['cancelled']:[]);
-  const cb=w=>(isComeback(w,LST.workOrders,settings().comebackDays)?' <span class="chip warn">Comeback</span>':'')+attChip(w);
-  return `<div class="vhead"><h1>Work orders</h1><div class="row">${can('createWO')?'<button class="btn primary" data-act="new-wo" id="newWo">New work order</button>':''}</div></div>
+  const cb=w=>(isComeback(w,LST.workOrders,settings().comebackDays)?' <span class="badge warn">Comeback</span>':'')+attChip(w);
+  return `${pageHead('Work orders',{acts:can('createWO')?actBtn('New work order',{id:'newWo',act:'new-wo',primary:true,icon:'plus'}):''})}
   <div class="filters"><div class="f2"><label for="f-wo-status">Status</label>${selHtml('f-wo-status',[['active','Active and awaiting close'],['all','All'],...Object.entries(WO_STATUS)],f.status,'data-filter="wo.status"')}</div>
-  <div class="f2" style="flex:0 0 auto"><label id="wo-view-l">View</label><div class="seg" role="group" aria-labelledby="wo-view-l"><button type="button" id="woViewT" data-act="wo-view" data-v="table" aria-pressed="${f.view==='table'}">Table</button><button type="button" id="woViewB" data-act="wo-view" data-v="board" aria-pressed="${f.view==='board'}">Board</button></div></div></div>
-  ${f.view==='board'?`<div class="kan">${cols.map(c=>{const ws=list.filter(w=>w.status===c);return `<div class="kcol"><h3>${WO_STATUS[c]} (${ws.length})</h3>${ws.map(w=>`<button type="button" class="kcard" data-act="open-wo" data-id="${esc(w.id)}" id="kc-${esc(w.id)}"><span class="wn">${esc(w.number)}</span> <span class="small">${esc(unitOf(w.vehicleId))}</span>${cb(w)}
+  <div class="f2 fix"><label id="wo-view-l">View</label><div class="seg" role="group" aria-labelledby="wo-view-l"><button type="button" id="woViewT" data-act="wo-view" data-v="table" aria-pressed="${f.view==='table'}">Table</button><button type="button" id="woViewB" data-act="wo-view" data-v="board" aria-pressed="${f.view==='board'}">Board</button></div></div></div>
+  ${f.view==='board'?`<div class="kan">${cols.map(c=>{const ws=list.filter(w=>w.status===c);return `<div class="kcol"><h3>${WO_STATUS[c]} <span class="muted">${ws.length}</span></h3>${ws.map(w=>`<button type="button" class="kcard" data-act="open-wo" data-id="${esc(w.id)}" id="kc-${esc(w.id)}"><span class="wn">${esc(w.number)}</span> <span class="small mono-s">${esc(unitOf(w.vehicleId))}</span>${cb(w)}
     <div class="small muted">${esc(WO_TYPES[w.type])} · ${esc(PRIO[w.priority])}</div><div class="small">${gyd(woTotal(w))}</div></button>`).join('')||'<p class="tiny muted" style="margin:4px">None</p>'}</div>`;}).join('')}</div>`
-  :`<div class="panel" style="padding:0"><div class="tscroll"><table class="t">${woHead(true)}<tbody>${woRows(list,true)||'<tr><td colspan="8" class="muted">No work orders match.</td></tr>'}</tbody></table></div></div>`}`;
+  :`<div class="panel"><div class="tscroll"><table class="t">${woHead(true)}<tbody>${woRows(list,true)||'<tr><td colspan="8" class="muted">No work orders match.</td></tr>'}</tbody></table></div></div>`}`;
 };
 export const woEditable=w=>w&&w.status!=='closed'&&w.status!=='cancelled';
 /* attachments */
@@ -142,10 +141,10 @@ export function attHtml(coll,doc){
     return `<li>${img?`<img class="thumb" src="${esc(fileUrl(a.assetId))}" alt="Photo: ${esc(a.name)}" width="48" height="48" loading="lazy">`:`<span class="ficon" aria-hidden="true">${/pdf/.test(a.type||'')?'PDF':'FILE'}</span>`}
     <div class="info"><b>${esc(a.name)}</b><div class="tiny muted">${/pdf/.test(a.type||'')?'PDF':esc((a.type||'file').replace('image/','').toUpperCase())} · ${esc(fmtSize(a.size))} · ${fmtDate(a.at)} · ${esc(nameOf(a.by))}</div></div>
     ${ok?`<a class="btn sm" href="${esc(fileUrl(a.assetId))}" target="_blank" rel="noopener">Open</a>`:''}
-    ${can('delAttach')?`<button type="button" class="btn sm danger" data-act="att-rm" data-coll="${coll}" data-id="${esc(doc.id)}" data-asset="${esc(a.assetId)}" id="attrm-${esc(a.assetId)}" aria-label="Remove ${esc(a.name)}">Remove</button>`:''}</li>`;}).join('');
+    ${can('delAttach')?`<button type="button" class="btn sm ghost danger" data-act="att-rm" data-coll="${coll}" data-id="${esc(doc.id)}" data-asset="${esc(a.assetId)}" id="attrm-${esc(a.assetId)}" aria-label="Remove ${esc(a.name)}">Remove</button>`:''}</li>`;}).join('');
   let ctl='';
   if(canAttach(coll,doc)){
-    ctl=`<div class="row"><input class="sr" type="file" id="att-file" data-att="${coll}:${esc(doc.id)}" accept=".pdf,image/jpeg,image/png,image/webp" multiple><label class="btn sm attlabel" for="att-file">Attach file</label><span class="tiny muted">PDF, JPEG, PNG or WebP, up to 20 MB each</span></div>`;
+    ctl=`<div class="row"><input class="sr" type="file" id="att-file" data-att="${coll}:${esc(doc.id)}" accept=".pdf,image/jpeg,image/png,image/webp" multiple><label class="btn sm attlabel" for="att-file">${icon('clip')}Attach file</label><span class="tiny muted">PDF, JPEG, PNG or WebP, up to 20 MB each</span></div>`;
   }
   return `${list.length?`<ul class="att">${rows}</ul>`:'<p class="small muted">No files attached.</p>'}${up.map(u=>`<p class="small" role="status">${esc(u.name)}: ${esc(u.state)}</p>`).join('')}${ctl}`;
 }
@@ -156,11 +155,11 @@ export function refreshAtt(){
 }
 export function issueHtml(i){
   const v=D.vehicles[i.vehicleId],wo=i.woId&&D.workOrders[i.woId];
-  return `<div class="row" style="margin-bottom:10px">${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}<span class="chip">${esc(ISSUE_ST[i.status]||i.status)}</span></div>
-  <h3 style="font-size:22px;margin-bottom:8px">${esc(i.title)}</h3><p style="white-space:pre-wrap">${esc(i.description||'No description.')}</p>
-  <dl class="dl" style="margin:12px 0">${kv('Unit',v?`<button class="btn link" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
+  return `<div class="row tight" style="margin-bottom:10px">${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}<span class="badge">${esc(ISSUE_ST[i.status]||i.status)}</span></div>
+  <h3 class="ititle">${esc(i.title)}</h3><p style="white-space:pre-wrap">${esc(i.description||'No description.')}</p>
+  <dl class="dl" style="margin:12px 0 16px">${kv('Unit',v?`<button class="btn link mono-s" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
   ${kv('Reported',fmtDT(i.reportedAt))}${kv('Reported by',esc(nameOf(i.by)))}${kv('Engine hours at report',i.hours!=null?num(i.hours)+' h':'–')}
-  ${kv('Work order',wo?`<button class="btn link" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
+  ${kv('Work order',wo?`<button class="btn link mono-s" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
   <h3>Attachments</h3><div id="attSec">${attHtml('issues',i)}</div>
   ${can('issues')&&i.status==='open'?`<div class="dfoot"><button class="btn primary" data-act="issue-wo" data-id="${esc(i.id)}" id="issue-wo">Create work order</button></div>`:''}`;
 }
@@ -168,36 +167,36 @@ export function woHtml(wo){
   const v=D.vehicles[wo.vehicleId],S=settings(),total=woTotal(wo),ed=woEditable(wo),work=canWo(wo)&&ed;
   const by={labor:0,part:0,outside:0};(wo.lines||[]).forEach(l=>{if(!l.warranty)by[l.kind]=(by[l.kind]||0)+lineCost(l);});
   const cb=isComeback(wo,LST.workOrders,S.comebackDays);
-  const apprChip=wo.approvalNeeded?(wo.approvedBy||['approved','scheduled','in_progress','on_hold','completed','closed'].includes(wo.status)?'<span class="chip ok">Approved</span>':'<span class="chip bad">Needs approval</span>'):'';
-  const lineRows=(wo.lines||[]).map(l=>`<tr><td>${esc(({labor:'Labor',part:'Part',outside:'Outside'})[l.kind]||l.kind)}</td><td>${esc(l.description)}${l.warranty?' <span class="chip">Warranty</span>':''}</td><td>${esc(l.repairCode)}</td><td class="n">${num(l.qty)}</td><td class="n">${gyd(l.unitCost)}</td><td class="n">${l.warranty?'<s>'+gyd(lineCost(l))+'</s>':gyd(lineCost(l))}</td>
-    <td>${work?`<button class="btn sm danger" data-act="wo-rmline" data-line="${esc(l.id)}" id="rm-${esc(l.id)}" aria-label="Remove line ${esc(l.description)}">Remove</button>`:''}</td></tr>`).join('');
-  const addLine=work?`<form data-form="line" id="lineForm" class="panel" style="background:var(--surface-2);margin-top:10px" novalidate><h3 style="margin-bottom:8px">Add a line</h3>
+  const apprChip=wo.approvalNeeded?(wo.approvedBy||['approved','scheduled','in_progress','on_hold','completed','closed'].includes(wo.status)?'<span class="badge ok">Approved</span>':'<span class="badge bad">Needs approval</span>'):'';
+  const lineRows=(wo.lines||[]).map(l=>`<tr><td>${esc(({labor:'Labor',part:'Part',outside:'Outside'})[l.kind]||l.kind)}</td><td>${esc(l.description)}${l.warranty?' <span class="badge">Warranty</span>':''}</td><td>${esc(l.repairCode)}</td><td class="n">${num(l.qty)}</td><td class="n">${gyd(l.unitCost)}</td><td class="n">${l.warranty?'<s>'+gyd(lineCost(l))+'</s>':gyd(lineCost(l))}</td>
+    <td>${work?`<button class="btn sm ghost danger" data-act="wo-rmline" data-line="${esc(l.id)}" id="rm-${esc(l.id)}" aria-label="Remove line ${esc(l.description)}">Remove</button>`:''}</td></tr>`).join('');
+  const addLine=work?`<form data-form="line" id="lineForm" class="panel pad inline" style="background:var(--surface-2);margin-top:12px" novalidate><h3 style="margin-bottom:8px">Add a line</h3>
     <div class="fgrid">${field('Kind',selHtml('ln-kind',[['labor','Labor'],['part','Part'],['outside','Outside work']],'labor'))}
     <div id="ln-partwrap" hidden>${field('Part',selHtml('ln-part',[['','Pick a part'],...LST.parts.map(p=>[p.id,`${p.number} ${p.description} (${p.onHand} in stock)`])],''),'Stock is deducted when the work order is completed.')}</div></div>
     ${field('Description',inp('ln-desc','','text','required maxlength="140" autocomplete="off"'))}
     <div class="fgrid">${field('System',selHtml('ln-code',REPAIR_CODES.map(c=>[c,c]),'Other'))}${field('Quantity or hours',inp('ln-qty','1','number','min="0" step="0.5" required inputmode="decimal"'))}${field('Unit cost (G$)',inp('ln-cost','6000','number','min="0" step="100" required inputmode="numeric"'))}</div>
     <label class="chk"><input type="checkbox" id="ln-warranty" name="ln-warranty"><span>Covered by warranty (not charged to GEMA)</span></label>
     <div class="dfoot"><button class="btn primary" type="submit" id="ln-add">Add line</button></div></form>`:'';
-  return `<div class="row" style="margin-bottom:10px">${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}${wo.status==='on_hold'&&wo.holdReason?`<span class="chip bad">${esc(HOLD[wo.holdReason])}</span>`:''}${cb?'<span class="chip warn">Comeback</span>':''}${apprChip}</div>
+  return `<div class="row tight" style="margin-bottom:10px">${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}${wo.status==='on_hold'&&wo.holdReason?`<span class="badge bad">${esc(HOLD[wo.holdReason])}</span>`:''}${cb?'<span class="badge warn">Comeback</span>':''}${apprChip}</div>
   <dl class="dl" style="margin-bottom:14px">
-    ${kv('Unit',v?`<button class="btn link" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
+    ${kv('Unit',v?`<button class="btn link mono-s" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
     ${kv('Type',esc(WO_TYPES[wo.type]))}
     ${kv('Priority',can('createWO',v)&&ed?selHtml('wo-prio',Object.entries(PRIO),wo.priority,'data-wo-field="priority" aria-label="Priority"'):esc(PRIO[wo.priority]))}
     ${kv('Mechanic',can('createWO',v)&&ed?selHtml('wo-mech',[['','Not assigned'],...LST.mechanics.map(m=>[m.id,m.name])],wo.mechanicId||'','data-wo-field="mechanicId" aria-label="Mechanic"'):esc(mechName(wo.mechanicId)))}
     ${kv('Opened',fmtDT(wo.openedAt))}${kv('Scheduled for',wo.scheduledFor?fmtDate(wo.scheduledFor):'–')}${kv('Started',wo.startedAt?fmtDT(wo.startedAt):'–')}
     ${kv('Completed',wo.completedAt?fmtDT(wo.completedAt):'–')}${kv('Closed',wo.closedAt?fmtDT(wo.closedAt):'–')}
     ${kv('Hours at open',num(wo.hoursAtOpen)+' h')}${kv('Hours at completion',wo.hoursAtComplete!=null?num(wo.hoursAtComplete)+' h':'–')}</dl>
-  ${(wo.pmTaskIds||[]).length?`<h3>PM tasks</h3><ul style="margin:4px 0 12px;padding-left:18px">${wo.pmTaskIds.map(t=>`<li>${esc((prog(v||{})?.tasks||[]).find(x=>x.id===t)?.name||t)}</li>`).join('')}</ul>`:''}
-  ${(wo.issueIds||[]).length?`<h3>Problems</h3><ul style="margin:4px 0 12px;padding-left:18px">${wo.issueIds.map(i=>`<li>${esc(D.issues[i]?.title||'Removed problem')} <span class="muted small">${esc(SEV[D.issues[i]?.severity]||'')}</span></li>`).join('')}</ul>`:''}
-  ${(wo.holdLog||[]).length?`<h3>Hold history</h3><ul style="margin:4px 0 12px;padding-left:18px">${wo.holdLog.map(h=>`<li>${esc(HOLD[h.reason]||h.reason)}: ${fmtDate(h.from)} to ${h.to?fmtDate(h.to):'now'}</li>`).join('')}</ul>`:''}
-  <h3>Lines</h3>${!ed?'<p class="small muted">This work order is locked. Lines cannot be changed.</p>':''}
+  ${(wo.pmTaskIds||[]).length?`<h3>PM tasks</h3><ul class="ul">${wo.pmTaskIds.map(t=>`<li>${esc((prog(v||{})?.tasks||[]).find(x=>x.id===t)?.name||t)}</li>`).join('')}</ul>`:''}
+  ${(wo.issueIds||[]).length?`<h3>Problems</h3><ul class="ul">${wo.issueIds.map(i=>`<li>${esc(D.issues[i]?.title||'Removed problem')} <span class="muted small">${esc(SEV[D.issues[i]?.severity]||'')}</span></li>`).join('')}</ul>`:''}
+  ${(wo.holdLog||[]).length?`<h3>Hold history</h3><ul class="ul">${wo.holdLog.map(h=>`<li>${esc(HOLD[h.reason]||h.reason)}: ${fmtDate(h.from)} to ${h.to?fmtDate(h.to):'now'}</li>`).join('')}</ul>`:''}
+  <h3 class="sec">Lines</h3>${!ed?'<p class="small muted">This work order is locked. Lines cannot be changed.</p>':''}
   <div class="tscroll"><table class="t lines"><thead><tr><th>Kind</th><th>Description</th><th>System</th><th class="n">Qty</th><th class="n">Unit cost</th><th class="n">Total</th><th></th></tr></thead><tbody>${lineRows||'<tr><td colspan="7" class="muted">No lines yet.</td></tr>'}</tbody></table></div>
   <dl class="dl" style="margin:10px 0"><div><dt>Labor</dt><dd>${gyd(by.labor)}</dd></div><div><dt>Parts</dt><dd>${gyd(by.part)}</dd></div><div><dt>Outside work</dt><dd>${gyd(by.outside)}</dd></div>${woWarranty(wo)?`<div><dt>Warranty (not charged)</dt><dd>${gyd(woWarranty(wo))}</dd></div>`:''}<div><dt>Total</dt><dd><b>${gyd(total)}</b></dd></div></dl>
   <p class="tiny muted">Work orders of ${gyd(S.approvalThresholdGYD)} or more need fleet manager approval.</p>
   ${addLine}
-  <h3 style="margin-top:14px">Attachments</h3><div id="attSec">${attHtml('workOrders',wo)}</div>
-  <h3 style="margin-top:14px">Notes</h3>${work||can('createWO',v)&&ed?`<textarea id="wo-notes" aria-label="Notes">${esc(wo.notes||'')}</textarea><div class="dfoot" style="margin-top:6px"><button class="btn sm" data-act="wo-notes" id="wo-save-notes">Save notes</button></div>`:`<p>${esc(wo.notes||'–')}</p>`}
-  <h3 style="margin-top:14px">Next step</h3>${woActions(wo,v)}`;
+  <h3 class="sec">Attachments</h3><div id="attSec">${attHtml('workOrders',wo)}</div>
+  <h3 class="sec">Notes</h3>${work||can('createWO',v)&&ed?`<textarea id="wo-notes" aria-label="Notes">${esc(wo.notes||'')}</textarea><div class="dfoot" style="margin-top:6px"><button class="btn sm" data-act="wo-notes" id="wo-save-notes">Save notes</button></div>`:`<p>${esc(wo.notes||'–')}</p>`}
+  <h3 class="sec">Next step</h3>${woActions(wo,v)}`;
 }
 function woActions(wo,v){
   const S=settings(),out=[];
@@ -215,7 +214,7 @@ function woActions(wo,v){
     case 'in_progress':
       if(canWo(wo)){
         out.push(`<div class="row" style="align-items:flex-end"><div style="flex:1 1 170px">${field('Put on hold because',selHtml('wo-hold',[['','Choose a reason'],...Object.entries(HOLD)],''))}</div><button class="btn" style="margin-bottom:10px" data-act="wo-act" data-a="hold" id="wo-btn-hold">Put on hold</button></div>`);
-        out.push(`<div class="panel" style="background:var(--surface-2)"><h3>Complete work order</h3><p class="small muted">This resets the PM tasks above, resolves the linked problems, takes used parts out of stock, logs a meter reading and returns the unit to service.</p>
+        out.push(`<div class="panel pad" style="background:var(--surface-2)"><h3>Complete work order</h3><p class="small muted">This resets the PM tasks above, resolves the linked problems, takes used parts out of stock, logs a meter reading and returns the unit to service.</p>
           <div class="fgrid">${field('Engine hours now',inp('wo-hrs',v?.engineHours??'','number','min="0" step="1" inputmode="numeric" required'))}${field('Kilometres (optional)',inp('wo-km','','number','min="0" step="1" inputmode="numeric"'))}</div>
           <button class="btn primary" data-act="wo-act" data-a="complete" id="wo-btn-complete">Mark completed</button></div>`);
       }else out.push(noPerm('A mechanic or supervisor updates this work order.'));break;
@@ -231,14 +230,14 @@ VIEWS.parts=function(){
   const spend={},open={};
   LST.workOrders.forEach(w=>{if(w.status==='cancelled')return;spend[w.mechanicId]=(spend[w.mechanicId]||0)+woTotal(w);if(WO_ACTIVE.includes(w.status))open[w.mechanicId]=(open[w.mechanicId]||0)+1;});
   const parts=LST.parts.slice().sort((a,b)=>String(a.number).localeCompare(String(b.number)));
-  return `<div class="vhead"><h1>Parts and mechanics</h1></div>
-  <div class="panel"><div class="ph"><h2>Parts</h2>${can('parts')?'<button class="btn primary sm" data-act="add-part" id="addPart">Add part</button>':''}</div>
+  return `${pageHead('Parts and mechanics')}
+  <div class="panel"><div class="ph"><h2>Parts</h2>${can('parts')?'<button class="btn sm" data-act="add-part" id="addPart">'+icon('plus')+'Add part</button>':''}</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Number</th><th>Description</th><th>Fits</th><th class="n">On hand</th><th class="n">Reorder at</th><th class="n">Unit cost</th><th>Stock</th><th></th></tr></thead><tbody>
   ${parts.map(p=>`<tr><td>${esc(p.number)}</td><td>${esc(p.description)}</td><td class="small">${esc(p.fits)}</td><td class="n">${num(p.onHand)}</td><td class="n">${num(p.reorderPoint)}</td><td class="n">${gyd(p.unitCost)}</td>
-  <td>${p.onHand<=0?'<span class="chip bad">Out of stock</span>':p.onHand<=p.reorderPoint?'<span class="chip warn">Low stock</span>':'<span class="chip ok">OK</span>'}</td>
-  <td>${can('parts')?`<div class="row"><button class="btn sm" data-act="receive-part" data-id="${esc(p.id)}" id="rcv-${esc(p.id)}">Receive</button><button class="btn sm" data-act="edit-part" data-id="${esc(p.id)}" id="ep-${esc(p.id)}">Edit</button></div>`:''}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">No parts yet.</td></tr>'}</tbody></table></div></div>
-  <div class="panel"><div class="ph"><h2>MOH-approved mechanics</h2>${can('mechanics')?'<button class="btn primary sm" data-act="add-mech" id="addMech">Add mechanic</button>':''}</div>
+  <td>${p.onHand<=0?'<span class="badge bad">Out of stock</span>':p.onHand<=p.reorderPoint?'<span class="badge warn">Low stock</span>':'<span class="badge ok">OK</span>'}</td>
+  <td class="c-act">${can('parts')?`<div class="row tight"><button class="btn sm" data-act="receive-part" data-id="${esc(p.id)}" id="rcv-${esc(p.id)}">Receive</button><button class="btn sm ghost" data-act="edit-part" data-id="${esc(p.id)}" id="ep-${esc(p.id)}">Edit</button></div>`:''}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">No parts yet.</td></tr>'}</tbody></table></div></div>
+  <div class="panel"><div class="ph"><h2>MOH-approved mechanics</h2>${can('mechanics')?'<button class="btn sm" data-act="add-mech" id="addMech">'+icon('plus')+'Add mechanic</button>':''}</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Name</th><th>Location</th><th>Region</th><th>Phone</th><th class="n">Open work orders</th><th class="n">Spend to date</th><th></th></tr></thead><tbody>
   ${LST.mechanics.map(m=>`<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.shop)}</td><td>${esc(m.region)}</td><td>${esc(m.phone)}</td><td class="n">${open[m.id]||0}</td><td class="n">${gyd(spend[m.id]||0)}</td>
-  <td>${can('mechanics')?`<button class="btn sm" data-act="edit-mech" data-id="${esc(m.id)}" id="em-${esc(m.id)}">Edit</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">No mechanics yet.</td></tr>'}</tbody></table></div></div>`;
+  <td class="c-act">${can('mechanics')?`<button class="btn sm ghost" data-act="edit-mech" data-id="${esc(m.id)}" id="em-${esc(m.id)}">Edit</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">No mechanics yet.</td></tr>'}</tbody></table></div></div>`;
 };

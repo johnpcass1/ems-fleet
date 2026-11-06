@@ -3,6 +3,8 @@ import { ROLES, ROLE_LIST } from '../shared/constants';
 import { D, LST, S, can, basesSorted } from './state';
 import { $, $$, esc, fmtDT, fmtDate, toast, field, inp, selHtml, val, run } from './util';
 import { VIEWS } from './registry';
+import { pageHead, actBtn } from './bits';
+import { icon } from './icons';
 import { showDrawer, closeDrawer, confirmUI } from './dom';
 import { listUsers, createUser, updateUser, setUserPassword, resendInvite, sendResetLink, setUserActive, listBackups, backupStep } from './actions';
 import { pwFieldsHtml, passwordProblem } from './accounts-ui';
@@ -38,17 +40,17 @@ VIEWS.users = function () {
   const list = usersCache;
   const bn = (id: string) => D.bases[id]?.name || id;
   const sysAdmin = S.me?.role === 'system_admin';
-  return `<div class="vhead"><h1>Users</h1><div class="row"><button class="btn primary" data-act="add-user" id="addUser">Add user</button></div></div>
-  <div class="warnbox" id="usersNote">${S.emailEnabled ? 'Add a person by choosing their password, or by emailing them a link so they choose their own. You can also set a new password or send a reset link at any time.' : 'Email isn’t set up, so you choose people’s passwords here. See docs/EMAIL.md to let people reset their own.'}</div>
+  return `${pageHead('Users',{acts:actBtn('Add user',{id:'addUser',act:'add-user',primary:true,icon:'plus'})})}
+  <div class="warnbox info" id="usersNote">${S.emailEnabled ? 'Add a person by choosing their password, or by emailing them a link so they choose their own. You can also set a new password or send a reset link at any time.' : 'Email isn’t set up, so you choose people’s passwords here. See docs/EMAIL.md to let people reset their own.'}</div>
   ${usersErr ? `<div class="warnbox bad" role="alert">${esc(usersErr)}</div>` : ''}
-  <div class="panel" style="padding:0"><div class="tscroll"><table class="t" id="usersTable"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Bases / mechanic</th><th>Last login</th><th>State</th><th></th></tr></thead><tbody>
+  <div class="panel"><div class="tscroll"><table class="t" id="usersTable"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Bases / mechanic</th><th>Last login</th><th>State</th><th></th></tr></thead><tbody>
   ${list === null ? '<tr><td colspan="7" class="muted">Loading...</td></tr>' : list.map((u) => `<tr class="${u.active ? '' : 'muted'}"><td><b>${esc(u.name)}</b></td><td>${esc(u.email)}</td><td>${esc(ROLES[u.role] || u.role)}</td>
     <td>${scoped(u.role) ? esc((u.baseIds || []).map(bn).join(', ') || 'No base') : u.role === 'mechanic' ? esc(D.mechanics[u.mechanicId]?.name || 'No mechanic linked') : 'All'}</td>
-    <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.invited ? '<span class="pill warn">Invited — not yet set up</span>' : u.mustChangePassword ? '<span class="pill warn">Password not set yet</span>' : '<span class="pill ok">Active</span>') : '<span class="pill off">Deactivated</span>'}</td>
-    <td><div class="row">${u.role === 'system_admin' && !sysAdmin ? '' : `<button class="btn sm" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
-      ${u.id === S.me.id ? '' : `<button class="btn sm" data-act="setpw-user" data-id="${esc(u.id)}" id="sp-${esc(u.id)}">Set password</button>`}
-      ${S.emailEnabled && u.active ? `<button class="btn sm" data-act="${u.invited ? 'invite-user' : 'reset-user'}" data-id="${esc(u.id)}" id="${u.invited ? 'ri' : 'ru'}-${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}
-      ${u.id === S.me.id ? '' : `<button class="btn sm ${u.active ? 'danger' : ''}" data-act="${u.active ? 'deactivate-user' : 'reactivate-user'}" data-id="${esc(u.id)}" id="du-${esc(u.id)}">${u.active ? 'Deactivate' : 'Reactivate'}</button>`}`}</div></td></tr>`).join('')}
+    <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.invited ? '<span class="badge warn">Invited — not yet set up</span>' : u.mustChangePassword ? '<span class="badge warn">Password not set yet</span>' : '<span class="badge ok">Active</span>') : '<span class="badge off">Deactivated</span>'}</td>
+    <td class="c-act"><div class="row tight">${u.role === 'system_admin' && !sysAdmin ? '' : `<button class="btn sm ghost" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
+      ${u.id === S.me.id ? '' : `<button class="btn sm ghost" data-act="setpw-user" data-id="${esc(u.id)}" id="sp-${esc(u.id)}">Set password</button>`}
+      ${S.emailEnabled && u.active ? `<button class="btn sm ghost" data-act="${u.invited ? 'invite-user' : 'reset-user'}" data-id="${esc(u.id)}" id="${u.invited ? 'ri' : 'ru'}-${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}
+      ${u.id === S.me.id ? '' : `<button class="btn sm ghost ${u.active ? 'danger' : ''}" data-act="${u.active ? 'deactivate-user' : 'reactivate-user'}" data-id="${esc(u.id)}" id="du-${esc(u.id)}">${u.active ? 'Deactivate' : 'Reactivate'}</button>`}`}</div></td></tr>`).join('')}
   </tbody></table></div></div>
   ${can('backups') ? backupsPanel() : ''}`;
 };
@@ -57,9 +59,9 @@ function backupsPanel() {
   loadBackups();
   const b = backupsCache;
   return `<div class="panel" id="backupsPanel"><div class="ph"><h2>Backups</h2><button class="btn sm" data-act="backup-now" id="backupNow">Back up now</button></div>
-  <p class="small muted">A full copy of all fleet records is saved every night (about 03:00 Guyana time) and the last 30 are kept. Download one to keep it somewhere safe. See docs/RESTORE.md for how to restore.</p>
+  <div class="pn small muted">A full copy of all fleet records is saved every night (about 03:00 Guyana time) and the last 30 are kept. Download one to keep it somewhere safe. See docs/RESTORE.md for how to restore.</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Date</th><th class="n">Size</th><th></th></tr></thead><tbody>
-  ${b === null ? '<tr><td colspan="3" class="muted">Loading...</td></tr>' : b.map((x) => `<tr><td>${esc(fmtDate(x.date))}</td><td class="n">${(x.size / 1024).toFixed(0)} KB</td><td><a class="btn sm" href="/api/admin/backups/${esc(x.date)}" download id="bk-${esc(x.date)}">Download</a></td></tr>`).join('') || '<tr><td colspan="3" class="muted">No backups yet. The first one is made tonight, or press Back up now.</td></tr>'}
+  ${b === null ? '<tr><td colspan="3" class="muted">Loading...</td></tr>' : b.map((x) => `<tr><td>${esc(fmtDate(x.date))}</td><td class="n">${(x.size / 1024).toFixed(0)} KB</td><td><a class="btn sm" href="/api/admin/backups/${esc(x.date)}" download id="bk-${esc(x.date)}">${icon('download')}Download</a></td></tr>`).join('') || '<tr><td colspan="3" class="muted">No backups yet. The first one is made tonight, or press Back up now.</td></tr>'}
   </tbody></table></div></div>`;
 }
 

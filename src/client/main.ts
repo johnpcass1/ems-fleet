@@ -1,10 +1,17 @@
 /** Entry point: decide between the login screen and the app, then keep the data fresh. */
+import '@fontsource/ibm-plex-sans/latin-400.css';
+import '@fontsource/ibm-plex-sans/latin-500.css';
+import '@fontsource/ibm-plex-sans/latin-600.css';
+import '@fontsource/ibm-plex-mono/latin-500.css';
+import '@fontsource/ibm-plex-mono/latin-600.css';
 import './style.css';
 import { api, setAuthHook, setRouteGetter, startPolling, stopPolling, syncNow, syncIdle, resetSyncState } from './api';
 import { S, COLS, D, LST, loadUi } from './state';
 import { $, toast, val } from './util';
 import { route } from './nav';
-import { render, showLogin, showForcedChange, changeFormHtml } from './shell';
+import { render, showLogin, showForcedChange, changeFormHtml, clearChrome } from './shell';
+import { loadLayout, wireLayout } from './layout';
+import { icon } from './icons';
 import { showForgot, showForgotDone, showLinkProblem, showSetPassword, passwordProblem, generatePassword, type LinkInfo } from './accounts-ui';
 import { wireEvents, acts, FORMS } from './ui';
 import { showDrawer, closeDrawer } from './dom';
@@ -27,11 +34,7 @@ function toLogin(message = '') {
   started = false;
   S.me = null;
   clearData();
-  $('#userbar').innerHTML = '';
-  $('#userbar').dataset.sig = '';
-  $('#nav').dataset.sig = '';
-  $('#nav').innerHTML = '';
-  $('#banners').innerHTML = '';
+  clearChrome();
   showLogin(message);
 }
 async function startApp() {
@@ -169,6 +172,9 @@ async function bootSetPassword() {
 
 async function boot() {
   loadUi();
+  loadLayout();
+  $('#menuBtn').innerHTML = icon('menu');
+  wireLayout();
   wireEvents();
   setRouteGetter(route);
   setProgressHook(refreshAtt);

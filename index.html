@@ -7,23 +7,28 @@
 <meta name="description" content="Fleet maintenance for the Guyana EMS ambulance program">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body class="loggedout">
 <div id="app">
-  <header class="top">
-    <div class="wrap topin">
-      <a class="brand" href="#board"><i aria-hidden="true"></i>GEMA Fleet</a>
-      <div class="toprt">
-        <span id="sampleChip" class="chip samplechip" hidden>Sample data</span>
-        <div class="userbar" id="userbar"></div>
-      </div>
+  <div class="navscrim" id="navScrim" data-act="nav-close"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sbhead"><a class="brand" href="#board" aria-label="GEMA Fleet, Guyana EMS fleet"><i class="mark" aria-hidden="true"></i><span class="bt"><b>GEMA Fleet</b><small>Guyana EMS fleet</small></span></a></div>
+    <nav id="nav" class="sbnav" aria-label="Main"></nav>
+    <div class="sbfoot">
+      <span id="sampleChip" class="badge samplechip" hidden>Sample data</span>
+      <button type="button" class="collapse" id="collapseBtn" data-act="sb-toggle" aria-label="Collapse sidebar"></button>
+      <div class="userbar" id="userbar"></div>
     </div>
-    <nav id="nav" class="wrap nav" aria-label="Main"></nav>
-  </header>
-  <div class="wrap" style="padding-block:0"><div id="banners"></div></div>
-  <main id="view" class="wrap" tabindex="-1"><p class="muted">Loading...</p></main>
+  </aside>
+  <div class="main">
+    <header class="topbar" id="topbar">
+      <button type="button" class="iconbtn menubtn" id="menuBtn" data-act="nav-open" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar"></button>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="topact" id="topact"></div>
+    </header>
+    <div class="wrap bannerwrap"><div id="banners"></div></div>
+    <main id="view" class="wrap" tabindex="-1"><p class="muted">Loading...</p></main>
+  </div>
   <div id="drawerRoot"></div><div id="confirmRoot"></div>
   <div id="toasts" aria-live="polite"></div>
 </div>

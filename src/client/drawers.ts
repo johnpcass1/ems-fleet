@@ -25,7 +25,7 @@ export function openDrawer(type: string, id: string, mode: string) {
   if (mode === 'push' && ui.drawer) drawerBack.push({ type: ui.drawer.type, id: ui.drawer.id });
   else if (mode !== 'pop') drawerBack.length = 0;
   drawerSig = T.sig(d);
-  showDrawer(T.title(d), T.html(d), { wide: T.wide, focusClose: true, drawer: { type, id }, back: '← Back to ' + drawerBackLabel() });
+  showDrawer(T.title(d), T.html(d), { wide: T.wide, focusClose: true, drawer: { type, id }, back: 'Back to ' + drawerBackLabel() });
 }
 export function refreshDrawer() {
   if (!ui.drawer) return;

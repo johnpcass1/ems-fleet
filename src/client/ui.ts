@@ -3,7 +3,8 @@ import { RANK, checkReading, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
 import { D, LST, ui, S, can, canWo, settings, vehiclesSorted, basesSorted, baseName, unitOf, readingsOf, wosOf, vsum, hasSample, coverageAfterRemoval, coverageEffect, saveUi } from './state';
 import { $, $$, esc, num, gyd, todayStr, toast, selHtml, field, inp, nv, val, run } from './util';
-import { statusPill, baseOpts, loanChip } from './bits';
+import { statusPill, statusSw, baseOpts, loanChip } from './bits';
+import { layoutActs, closeMenus, escLayout, navRoot } from './layout';
 import { showDrawer, closeDrawer, confirmUI, cfDone, drawerBack } from './dom';
 import * as nav from './nav';
 import { go, route, openVehicle, goBack, viewChanged, applyNav, restoreNav, setSkipNext, setPendingRestore, clearNavStack } from './nav';
@@ -216,7 +217,7 @@ export function openMoveDrawer(pre){
   showDrawer(pre.length===1?`Move ${unitOf(pre[0])}`:'Move units',`<form data-form="move" id="moveForm" novalidate>
     <p class="small muted" id="mv-l">Pick the units to move, then the base they move to.</p>
     <div class="mvlist" role="group" aria-labelledby="mv-l">${groups.map(b=>`<h3>${esc(b.name)}</h3>${vs.filter(v=>(v.baseId||'')===b.id).map(v=>
-      `<label class="chk"><input type="checkbox" id="mv-u-${esc(v.id)}" name="mvu" value="${esc(v.id)}" ${pre.includes(v.id)?'checked':''}><span><b>${esc(v.unit)}</b> <span class="muted small">${esc(v.make)} ${esc(v.model)}</span> ${statusPill(v.status)} ${loanChip(v)}</span></label>`).join('')}`).join('')}</div>
+      `<label class="chk"><input type="checkbox" id="mv-u-${esc(v.id)}" name="mvu" value="${esc(v.id)}" ${pre.includes(v.id)?'checked':''}><span><b>${esc(v.unit)}</b> <span class="muted small">${esc(v.make)} ${esc(v.model)}</span> ${statusSw(v.status)} ${loanChip(v)}</span></label>`).join('')}`).join('')}</div>
     ${field('Move to',selHtml('mv-to',[['','Choose a base'],...baseOpts(false)],''))}
     ${field('Reason (optional)',inp('mv-reason','','text','maxlength="160" autocomplete="off"'))}
     <label class="chk"><input type="checkbox" id="mv-temp" name="mv-temp"><span>Temporary move (the unit goes back later)</span></label>
@@ -337,9 +338,9 @@ document.addEventListener('input',(e:any)=>{
   }
 });
 document.addEventListener('keydown',(e:any)=>{
-  if(e.key==='Escape'){if($('#confirmRoot .dlg'))cfDone(false);else if($('#drawerRoot .drawer'))closeDrawer();return;}
+  if(e.key==='Escape'){if(closeMenus())return;if($('#confirmRoot .dlg'))cfDone(false);else if($('#drawerRoot .drawer'))closeDrawer();else escLayout();return;}
   if(e.key==='Tab'){
-    const root=$('#confirmRoot .dlg')||$('#drawerRoot .drawer');if(!root)return;
+    const root=$('#confirmRoot .dlg')||$('#drawerRoot .drawer')||navRoot();if(!root)return;
     const f=$$('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',root).filter(x=>!x.closest('[hidden]'));
     if(!f.length)return;const first=f[0],last=f[f.length-1];
     if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
@@ -366,3 +367,4 @@ window.addEventListener('hashchange',()=>{
 
 Object.assign(FORMS,userForms);
 Object.assign(acts,userActs);
+Object.assign(acts,layoutActs);

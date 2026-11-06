@@ -43,7 +43,7 @@
 
 ## Browser protections
 
-`Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'`, plus `Referrer-Policy`, `X-Content-Type-Options: nosniff`, and `Permissions-Policy` (camera, microphone and location off). There are no inline scripts. `unsafe-inline` is allowed for styles only, because the screens use some inline `style` attributes.
+`Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`, plus `Referrer-Policy`, `X-Content-Type-Options: nosniff`, and `Permissions-Policy` (camera, microphone and location off). There are no inline scripts. `unsafe-inline` is allowed for styles only, because the screens use some inline `style` attributes.
 
 ## What is not covered
 

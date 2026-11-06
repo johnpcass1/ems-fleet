@@ -20,7 +20,10 @@
     "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "hono": "^4.13.16",
+    "lucide": "^1.70.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

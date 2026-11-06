@@ -67,7 +67,10 @@ async function forcedChange(page, from, to) {
   await page.fill('#cp-cur', from); await page.fill('#cp-new', to); await page.fill('#cp-new2', to);
   await page.click('#cp-submit');
 }
-async function logout(page) { await page.click('#logoutBtn'); await page.waitForSelector('#lg-email'); }
+async function logout(page) {
+  if (await page.locator('#menuBtn').isVisible()) await page.click('#menuBtn'); // below 1024 px the sidebar is a drawer
+  await page.click('#userMenuBtn'); await page.click('#logoutBtn'); await page.waitForSelector('#lg-email');
+}
 const toastText = (page) => page.locator('#toasts').innerText();
 
 /* ---------- the walk-through ---------- */
@@ -85,8 +88,8 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await page.fill('#lg-pass', secrets.adminPass);
     await page.click('#lg-submit');
     if (secrets.adminForced) { await shot('02-forced-change'); await noOverflow(page); await forcedChange(page, secrets.adminPass, secrets.adminPass2); secrets.adminForced = false; secrets.adminPass = secrets.adminPass2; }
-    await page.waitForSelector('.tile');
-    if ((await page.locator('.tile').count()) < 10) throw new Error('board shows too few units');
+    await page.waitForSelector('.urow');
+    if ((await page.locator('.urow').count()) < 10) throw new Error('board shows too few units');
     await shot('03-board'); await noOverflow(page);
   }, tag);
   await check(page, 'no role switcher, no load-sample button', async () => {
@@ -96,18 +99,61 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await shot('04-setup'); await noOverflow(page);
   }, tag);
   await check(page, 'dispatch wall and unit drawer', async () => {
-    await page.goto(BASE + '/#dispatch'); await page.waitForSelector('.wt', { timeout: 8000 });
+    await page.goto(BASE + '/#dispatch'); await page.waitForSelector('.dcell', { timeout: 8000 });
     await shot('05-dispatch'); await noOverflow(page);
+    // the top bar stays on Dispatch so the tabs can still be switched
+    if (!(await page.locator('#topbar').isVisible())) throw new Error('top bar missing on dispatch');
+    if (await page.locator('#menuBtn').isVisible()) { await page.click('#menuBtn'); await page.waitForSelector('#nav a[data-r="board"]', { state: 'visible' }); await page.keyboard.press('Escape'); await page.waitForSelector('#nav a', { state: 'hidden' }); }
+    else if (!(await page.locator('#nav a[data-r="board"]').isVisible())) throw new Error('sidebar missing on dispatch');
     const t = page.locator('[data-act="open-unit"]').first();
     await t.click(); await page.waitForSelector('#drawerRoot .drawer');
     await shot('06-dispatch-drawer');
     await page.click('#dClose'); await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+  }, tag);
+  await check(page, 'dispatch wall display: toggle, exit button, Esc, remembered', async () => {
+    await page.click('#wallToggle');
+    await page.waitForFunction(() => document.body.classList.contains('wallmode'));
+    if (await page.locator('#topbar').isVisible() || await page.locator('#sidebar').isVisible()) throw new Error('chrome still visible in wall mode');
+    if (!(await page.locator('#wallExit').isVisible())) throw new Error('no exit button');
+    await shot('05w-dispatch-wall'); await noOverflow(page);
+    await page.reload(); await page.waitForSelector('.dcell');
+    if (!(await page.evaluate(() => document.body.classList.contains('wallmode')))) throw new Error('wall mode not remembered');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.body.classList.contains('wallmode'));
+    if (!(await page.locator('#topbar').isVisible())) throw new Error('top bar not back after Esc');
+    await page.click('#wallToggle'); await page.click('#wallExit');
+    await page.waitForFunction(() => !document.body.classList.contains('wallmode'));
+    await page.evaluate(() => { try { localStorage.removeItem('gema-fleet-wall'); } catch { /* ignore */ } });
+  }, tag);
+  await check(page, 'sidebar: collapse is remembered (desktop) / drawer traps focus (mobile)', async () => {
+    await page.goto(BASE + '/#board'); await page.waitForSelector('.urow');
+    if (await page.locator('#menuBtn').isVisible()) {
+      await page.click('#menuBtn');
+      const inside = async () => page.evaluate(() => document.getElementById('sidebar').contains(document.activeElement));
+      for (let i = 0; i < 14; i++) { await page.keyboard.press('Tab'); if (!(await inside())) throw new Error('focus left the open menu'); }
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.body.classList.contains('navopen'));
+      if (!(await page.evaluate(() => document.activeElement.id === 'menuBtn'))) throw new Error('focus not returned to the menu button');
+      await page.click('#menuBtn'); await page.click('#nav a[data-r="vehicles"]');
+      await page.waitForFunction(() => location.hash === '#vehicles' && !document.body.classList.contains('navopen'));
+    } else {
+      await page.click('#collapseBtn');
+      const w = await page.evaluate(() => document.getElementById('sidebar').getBoundingClientRect().width);
+      if (Math.round(w) !== 64) throw new Error('rail width ' + w);
+      await noOverflow(page);
+      await page.reload(); await page.waitForSelector('.urow');
+      if (!(await page.evaluate(() => document.body.classList.contains('rail')))) throw new Error('rail not remembered');
+      await page.click('#collapseBtn');
+      if (Math.round(await page.evaluate(() => document.getElementById('sidebar').getBoundingClientRect().width)) !== 232) throw new Error('did not expand');
+    }
   }, tag);
   await check(page, 'vehicle detail and back', async () => {
     await page.goto(BASE + '/#vehicles'); await page.waitForSelector('[data-act="open-vehicle"]');
     await page.locator('[data-act="open-vehicle"]').first().click();
     await page.waitForSelector('#navBack');
     await shot('07-vehicle'); await noOverflow(page);
+    await page.click('#vMoreBtn'); await page.waitForSelector('#vMorePop', { state: 'visible' });
+    await page.keyboard.press('Escape'); await page.waitForSelector('#vMorePop', { state: 'hidden' });
     for (const tab of ['pm', 'issues', 'history', 'costs']) { const b = page.locator(`[data-act="vtab"][data-tab="${tab}"]`); if (await b.count()) { await b.click(); } }
     await page.click('#navBack');
     await page.waitForFunction(() => location.hash === '#vehicles');
@@ -230,12 +276,13 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
   await check(page, 'logout', async () => { await logout(page); }, tag);
 }
 
-/** Google Fonts is answered locally so the run works without internet access; the CSP still lists those hosts. */
+/** Fonts are self-hosted (the CSP allows 'self' only), so any request to another host is a fault. */
 async function newCtx(browser, opts) {
   const ctx = await browser.newContext(opts);
-  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  ctx.on('request', (r) => { if (!/^(blob:|data:)/.test(r.url()) && !r.url().startsWith(BASE)) stray.push(r.url()); });
   return ctx;
 }
+const stray = [];
 async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
   const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(8000);
   const errs = [];
@@ -245,7 +292,7 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
   const rec = secrets[who];
   await check(page, `${kind}: logs in with the password the administrator chose, no forced change`, async () => {
     await login(page, rec.email, rec.pass);
-    await page.waitForSelector(kind === 'dispatcher' ? '.wall, [data-act="open-unit"]' : '.tile', { timeout: 10000 });
+    await page.waitForSelector(kind === 'dispatcher' ? '.dcell' : '.urow', { timeout: 10000 });
   }, tag);
   if (kind === 'crew') {
     await check(page, 'crew: restricted UI', async () => {
@@ -267,7 +314,7 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
       const links = await page.$$eval('#nav a', (a) => a.map((x) => x.dataset.r));
       if (links.join() !== 'dispatch') throw new Error('nav is ' + links.join());
       await page.goto(BASE + '/#board'); await page.waitForTimeout(400);
-      if (!(await page.evaluate(() => document.body.classList.contains('wall')))) throw new Error('dispatcher left the dispatch screen');
+      if (!(await page.locator('.dcell').count())) throw new Error('dispatcher left the dispatch screen');
       // the dispatcher feed is redacted: no cost, parts or notes are fetched
       const r = await page.evaluate(async () => (await fetch('/api/sync?since=0', { credentials: 'same-origin' })).json());
       if (r.data.parts?.length) throw new Error('dispatcher received parts');
@@ -325,7 +372,7 @@ async function emailFlow(browser, cfg, secrets) {
   await check(a.page, 'email: admin invites a person by email (no password shown)', async () => {
     await login(a.page, secrets.adminEmail, secrets.adminPass);
     if (secrets.adminForced) { await forcedChange(a.page, secrets.adminPass, secrets.adminPass2); secrets.adminForced = false; secrets.adminPass = secrets.adminPass2; }
-    await a.page.waitForSelector('.tile');
+    await a.page.waitForSelector('.urow');
     await a.page.goto(BASE + '/#users'); await a.page.waitForSelector('#addUser');
     if (!/or by emailing them a link/.test(await a.page.locator('#usersNote').innerText())) throw new Error('email note missing');
     await a.page.click('#addUser'); await a.page.waitForSelector('#userForm');
@@ -402,7 +449,7 @@ async function emailFlow(browser, cfg, secrets) {
     if (!/do not match/.test(await c.page.innerText('#sp-err'))) throw new Error('mismatch not reported');
     await shot(c.page, '07-set-password-error'); await noOverflow(c.page);
     await c.page.fill('#sp-new2', 'Invitee-chosen-pass-1'); await c.page.click('#sp-submit');
-    await c.page.waitForSelector('.tile');
+    await c.page.waitForSelector('.urow');
     if (!c.page.url().includes('#board')) throw new Error('did not land on the board: ' + c.page.url());
     await shot(c.page, '08-landed'); await noOverflow(c.page);
   }, t);
@@ -420,10 +467,10 @@ async function emailFlow(browser, cfg, secrets) {
     if (!(await c.page.innerText('h1')).includes('Reset your password')) throw new Error('reset heading');
     await shot(c.page, '11-reset'); await noOverflow(c.page);
     await c.page.fill('#sp-new', 'Invitee-reset-pass-3'); await c.page.fill('#sp-new2', 'Invitee-reset-pass-3'); await c.page.click('#sp-submit');
-    await c.page.waitForSelector('.tile');
+    await c.page.waitForSelector('.urow');
     await logout(c.page);
     await login(c.page, crew.email, 'Invitee-reset-pass-3');
-    await c.page.waitForSelector('.tile');
+    await c.page.waitForSelector('.urow');
     // the previous password no longer works
     await logout(c.page);
     await c.page.fill('#lg-email', crew.email); await c.page.fill('#lg-pass', 'Invitee-chosen-pass-1'); await c.page.click('#lg-submit');
@@ -489,6 +536,7 @@ async function emailFlow(browser, cfg, secrets) {
     server.kill('SIGTERM'); sh('pkill', ['-f', 'workerd']);
   }
   await browser.close();
+  if (stray.length) { failures++; log('FAIL requests to other hosts:', [...new Set(stray)].slice(0, 5).join(', ')); }
   log(`\n${results.filter((r) => r[0] === 'ok').length} checks passed, ${failures} failed.`);
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); try { server?.kill('SIGTERM'); } catch { /* ignore */ } process.exit(2); });
