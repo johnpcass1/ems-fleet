@@ -69,13 +69,13 @@ export function showLogin(message = '') {
       <label class="f"><span class="l">Password</span><input id="lg-pass" name="password" type="password" autocomplete="current-password" required></label>
       <div id="lg-err" class="warnbox bad" role="alert" hidden></div>
       <button class="btn primary" type="submit" id="lg-submit" style="width:100%">Log in</button>
-    </form><p class="small muted" style="margin-top:14px">Forgot your password? Ask your fleet manager or the system administrator for a new temporary one.</p></div></div>`;
+    </form><p class="small muted" style="margin-top:14px">${S.emailEnabled ? '<a href="/" data-act="forgot" id="forgotLink">Forgot password?</a>' : 'Forgot your password? Ask your fleet manager or the system administrator to set a new one.'}</p></div></div>`;
   $('#lg-email').focus();
 }
 export function showForcedChange() {
   document.body.classList.add('loggedout');
   $('#userbar').innerHTML = '';
-  $('#view').innerHTML = `<div class="loginwrap"><div class="panel"><h1>Choose a new password</h1><p class="muted small">You are using a temporary password. Choose your own to continue.</p>
+  $('#view').innerHTML = `<div class="loginwrap"><div class="panel"><h1>Choose a new password</h1><p class="muted small">Choose your own password to continue.</p>
     ${changeFormHtml()}</div></div>`;
   $('#cp-new').focus();
 }

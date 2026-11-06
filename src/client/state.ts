@@ -17,6 +17,7 @@ export const S = {
   ver: 0, // bumped on every data change
   cursor: 0,
   connFailed: false,
+  emailEnabled: false, // the server can send invite and reset emails
   idxVer: -1,
   IDX: {} as any,
 };

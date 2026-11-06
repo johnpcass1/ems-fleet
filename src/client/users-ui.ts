@@ -4,7 +4,8 @@ import { D, LST, S, can, basesSorted } from './state';
 import { $, $$, esc, fmtDT, fmtDate, toast, field, inp, selHtml, val, run } from './util';
 import { VIEWS } from './registry';
 import { showDrawer, closeDrawer, confirmUI } from './dom';
-import { listUsers, createUser, updateUser, resetPassword, setUserActive, listBackups, backupStep } from './actions';
+import { listUsers, createUser, updateUser, setUserPassword, resendInvite, sendResetLink, setUserActive, listBackups, backupStep } from './actions';
+import { pwFieldsHtml, passwordProblem } from './accounts-ui';
 import { api } from './api';
 import { scheduleRender } from './state';
 
@@ -38,14 +39,15 @@ VIEWS.users = function () {
   const bn = (id: string) => D.bases[id]?.name || id;
   const sysAdmin = S.me?.role === 'system_admin';
   return `<div class="vhead"><h1>Users</h1><div class="row"><button class="btn primary" data-act="add-user" id="addUser">Add user</button></div></div>
-  <div class="warnbox">Accounts are created here and nowhere else. When you add a person or reset a password, the temporary password is shown <b>once</b>. Give it to the person yourself, in person or by phone. The system does not email passwords. They must choose their own password the first time they log in.</div>
+  <div class="warnbox" id="usersNote">${S.emailEnabled ? 'Add a person by choosing their password, or by emailing them a link so they choose their own. You can also set a new password or send a reset link at any time.' : 'Email isn’t set up, so you choose people’s passwords here. See docs/EMAIL.md to let people reset their own.'}</div>
   ${usersErr ? `<div class="warnbox bad" role="alert">${esc(usersErr)}</div>` : ''}
   <div class="panel" style="padding:0"><div class="tscroll"><table class="t" id="usersTable"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Bases / mechanic</th><th>Last login</th><th>State</th><th></th></tr></thead><tbody>
   ${list === null ? '<tr><td colspan="7" class="muted">Loading...</td></tr>' : list.map((u) => `<tr class="${u.active ? '' : 'muted'}"><td><b>${esc(u.name)}</b></td><td>${esc(u.email)}</td><td>${esc(ROLES[u.role] || u.role)}</td>
     <td>${scoped(u.role) ? esc((u.baseIds || []).map(bn).join(', ') || 'No base') : u.role === 'mechanic' ? esc(D.mechanics[u.mechanicId]?.name || 'No mechanic linked') : 'All'}</td>
-    <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.mustChangePassword ? '<span class="pill warn">Password not set yet</span>' : '<span class="pill ok">Active</span>') : '<span class="pill off">Deactivated</span>'}</td>
+    <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.invited ? '<span class="pill warn">Invited — not yet set up</span>' : u.mustChangePassword ? '<span class="pill warn">Password not set yet</span>' : '<span class="pill ok">Active</span>') : '<span class="pill off">Deactivated</span>'}</td>
     <td><div class="row">${u.role === 'system_admin' && !sysAdmin ? '' : `<button class="btn sm" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
-      <button class="btn sm" data-act="reset-user" data-id="${esc(u.id)}" id="ru-${esc(u.id)}">Reset password</button>
+      ${u.id === S.me.id ? '' : `<button class="btn sm" data-act="setpw-user" data-id="${esc(u.id)}" id="sp-${esc(u.id)}">Set password</button>`}
+      ${S.emailEnabled && u.active ? `<button class="btn sm" data-act="${u.invited ? 'invite-user' : 'reset-user'}" data-id="${esc(u.id)}" id="${u.invited ? 'ri' : 'ru'}-${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}
       ${u.id === S.me.id ? '' : `<button class="btn sm ${u.active ? 'danger' : ''}" data-act="${u.active ? 'deactivate-user' : 'reactivate-user'}" data-id="${esc(u.id)}" id="du-${esc(u.id)}">${u.active ? 'Deactivate' : 'Reactivate'}</button>`}`}</div></td></tr>`).join('')}
   </tbody></table></div></div>
   ${can('backups') ? backupsPanel() : ''}`;
@@ -73,13 +75,20 @@ function userFormHtml(u: any) {
       ${basesSorted().map((b) => `<label class="chk"><input type="checkbox" name="ufb" id="ufb-${esc(b.id)}" value="${esc(b.id)}" ${(u.baseIds || []).includes(b.id) ? 'checked' : ''}><span>${esc(b.name)}</span></label>`).join('')}</fieldset></div>
     <div id="uf-mechwrap" ${u.role === 'mechanic' ? '' : 'hidden'}>${field('Linked mechanic', selHtml('uf-mech', mechs, u.mechanicId || ''), 'This person only sees work orders assigned to this mechanic.')}</div>
     <p class="small muted" id="uf-help"></p>
+    ${e ? '' : `<fieldset class="f"><legend class="l">Password</legend>
+      <label class="chk"><input type="radio" name="uf-how" id="uf-how-pw" value="password" checked><span>Set a password now</span></label>
+      ${S.emailEnabled ? '<label class="chk"><input type="radio" name="uf-how" id="uf-how-invite" value="invite"><span>Email an invite link</span></label>' : ''}</fieldset>
+    <div id="uf-pwwrap">${pwFieldsHtml('uf')}</div>
+    ${S.emailEnabled ? '<p class="small muted" id="uf-invitehelp" hidden>They get an email with a link, valid for 7 days, to choose their own password.</p>' : ''}`}
     <div class="dfoot"><button class="btn" type="button" data-act="close-drawer" id="uf-cancel">Cancel</button><button class="btn primary" type="submit" id="uf-save">${e ? 'Save changes' : 'Create user'}</button></div></form>`;
 }
-function showTempPassword(title: string, who: string, pw: string) {
-  showDrawer(title, `<p>Temporary password for <b>${esc(who)}</b>:</p><div class="pwbox" id="tempPw">${esc(pw)}</div>
-    <div class="warnbox" style="margin-top:12px"><b>This is the only time it is shown.</b> Give it to ${esc(who)} yourself, in person or by phone. The system does not send it by email or message. They will be asked to choose their own password at their first login.</div>
-    <div class="dfoot"><button class="btn" type="button" data-act="copy-pw" id="copyPw">Copy</button><button class="btn primary" type="button" data-act="close-drawer" id="pwDone">I have given it to them</button></div>`, { focusClose: false });
+function setPwFormHtml(u: any) {
+  return `<form data-form="setpw" data-id="${esc(u.id)}" id="setPwForm" novalidate>
+    <p>Choose a new password for <b>${esc(u.name)}</b>. Their current password stops working and they are logged out everywhere. They will not be asked to change it, but they can at any time with the Password button.</p>
+    ${pwFieldsHtml('sp')}
+    <div class="dfoot"><button class="btn" type="button" data-act="close-drawer" id="sp-cancel">Cancel</button><button class="btn primary" type="submit" id="sp-save">Set password</button></div></form>`;
 }
+const pwVal = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? '';
 
 export const userForms: Record<string, any> = {
   user: async (f: any) => {
@@ -93,22 +102,46 @@ export const userForms: Record<string, any> = {
     if (id) { if (await run(() => updateUser(id, { name, role, baseIds, mechanicId }))) { toast('User saved'); closeDrawer(); await loadUsers(true); } return; }
     const email = val('uf-email');
     if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter a valid email address.', true); return; }
-    let r: any;
-    if (await run(async () => { r = await createUser({ email, name, role, baseIds, mechanicId }); })) {
-      await loadUsers(true);
-      showTempPassword('User created', name, r.temporaryPassword);
+    const invite = (document.querySelector('input[name=uf-how]:checked') as HTMLInputElement | null)?.value === 'invite' && S.emailEnabled;
+    let payload: any = { email, name, role, baseIds, mechanicId };
+    if (invite) payload.invite = true;
+    else {
+      const problem = passwordProblem(pwVal('uf-pw'), pwVal('uf-pw2'), email);
+      if (problem) { toast(problem, true); return; }
+      payload.password = pwVal('uf-pw');
     }
+    let r: any;
+    if (await run(async () => { r = await createUser(payload); })) {
+      await loadUsers(true);
+      closeDrawer();
+      if (!invite) toast(`Account created. Give ${name} their password.`);
+      else if (r.emailSent) toast(`Email sent to ${r.email}`);
+      else toast(`Account created, but we couldn't send the email: ${r.emailError}. Use Resend invite to try again.`, true);
+    }
+  },
+  setpw: async (f: any) => {
+    const u = (usersCache || []).find((x) => x.id === f.dataset.id);
+    if (!u) return;
+    const problem = passwordProblem(pwVal('sp-pw'), pwVal('sp-pw2'), u.email);
+    if (problem) { toast(problem, true); return; }
+    if (await run(() => setUserPassword(u.id, pwVal('sp-pw')))) { closeDrawer(); toast(`Password set. Give ${u.name} their new password.`); await loadUsers(true); }
   },
 };
 export const userActs: Record<string, any> = {
   'add-user': () => { showDrawer('Add user', userFormHtml(null)); syncUserForm(); },
   'edit-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u) { showDrawer('Edit user', userFormHtml(u)); syncUserForm(); } },
+  'setpw-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u) showDrawer(`Set password for ${u.name}`, setPwFormHtml(u)); },
   'reset-user': async (el: any) => {
     const u = (usersCache || []).find((x) => x.id === el.dataset.id);
     if (!u) return;
-    if (!(await confirmUI({ title: `Reset password for ${u.name}?`, message: 'Their current password stops working and they are logged out. You will be shown a new temporary password once.', label: 'Reset password', danger: true }))) return;
     let r: any;
-    if (await run(async () => { r = await resetPassword(u.id); })) { await loadUsers(true); showTempPassword('Password reset', u.name, r.temporaryPassword); }
+    if (await run(async () => { r = await sendResetLink(u.id); })) toast(`Email sent to ${r.email}`);
+  },
+  'invite-user': async (el: any) => {
+    const u = (usersCache || []).find((x) => x.id === el.dataset.id);
+    if (!u) return;
+    let r: any;
+    if (await run(async () => { r = await resendInvite(u.id); })) toast(`Email sent to ${r.email}`);
   },
   'deactivate-user': async (el: any) => {
     const u = (usersCache || []).find((x) => x.id === el.dataset.id);
@@ -117,7 +150,6 @@ export const userActs: Record<string, any> = {
     if (await run(() => setUserActive(u.id, false))) { toast('User deactivated'); await loadUsers(true); }
   },
   'reactivate-user': async (el: any) => { if (await run(() => setUserActive(el.dataset.id, true))) { toast('User reactivated'); await loadUsers(true); } },
-  'copy-pw': async () => { try { await navigator.clipboard.writeText($('#tempPw').textContent); toast('Copied'); } catch { toast('Select the password and copy it by hand.', true); } },
   'backup-now': async (el: any) => {
     el.disabled = true;
     try {
@@ -135,6 +167,10 @@ export function syncUserForm() {
   const r = val('uf-role');
   const bw = $('#uf-basewrap'), mw = $('#uf-mechwrap'), h = $('#uf-help');
   if (!bw) return;
+  const how = (document.querySelector('input[name=uf-how]:checked') as HTMLInputElement | null)?.value;
+  const pw = $('#uf-pwwrap'), ih = $('#uf-invitehelp');
+  if (pw) pw.hidden = how === 'invite';
+  if (ih) ih.hidden = how !== 'invite';
   bw.hidden = !scoped(r);
   mw.hidden = r !== 'mechanic';
   const help: Record<string, string> = {

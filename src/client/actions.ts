@@ -38,9 +38,12 @@ export const saveSettings = (o: any) => after(api('PUT', '/settings', o));
 
 /* users and backups */
 export const listUsers = () => api<{ users: any[] }>('GET', '/users');
-export const createUser = (o: any) => after(api<{ id: string; temporaryPassword: string }>('POST', '/users', o));
+export interface EmailResult { emailSent?: boolean; email?: string; emailError?: string }
+export const createUser = (o: any) => after(api<{ id: string } & EmailResult>('POST', '/users', o));
 export const updateUser = (id: string, o: any) => after(api('PUT', `/users/${id}`, o));
-export const resetPassword = (id: string) => api<{ temporaryPassword: string }>('POST', `/users/${id}/reset-password`);
+export const setUserPassword = (id: string, password: string) => api('POST', `/users/${id}/password`, { password });
+export const resendInvite = (id: string) => api<EmailResult>('POST', `/users/${id}/invite`);
+export const sendResetLink = (id: string) => api<EmailResult>('POST', `/users/${id}/reset-link`);
 export const setUserActive = (id: string, active: boolean) => api('POST', `/users/${id}/${active ? 'reactivate' : 'deactivate'}`);
 export const listBackups = () => api<{ backups: any[] }>('GET', '/admin/backups');
 export const backupStep = (force: boolean) => api<{ status: string; step?: number; of?: number }>('POST', '/admin/backups/step', { force });
