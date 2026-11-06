@@ -19,6 +19,15 @@ describe('login, logout, sessions', () => {
     expect(me.json.user.email).toBe(u.email);
   });
 
+  it('session endpoint answers 200 with null when logged out (no console error on the login page)', async () => {
+    const out = await api('GET', '/api/auth/session');
+    expect(out.status).toBe(200);
+    expect(out.json.user).toBeNull();
+    const { cookie, user } = await as('viewer');
+    const inn = await api('GET', '/api/auth/session', { cookie });
+    expect(inn.json.user.email).toBe(user.email);
+  });
+
   it('stores only a hash of the session token', async () => {
     const { cookie } = await as('viewer');
     const token = cookie.split('=')[1];

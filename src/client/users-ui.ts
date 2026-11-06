@@ -1,4 +1,3 @@
-// @ts-nocheck -- same style as the other screens
 /** Users screen (fleet manager and system administrator) and the Backups panel (system administrator). */
 import { ROLES, ROLE_LIST } from '../shared/constants';
 import { D, LST, S, can, basesSorted } from './state';

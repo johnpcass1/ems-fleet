@@ -1,4 +1,4 @@
-// @ts-nocheck -- ported from the prototype; behaviour is covered by the e2e run
+// @ts-nocheck -- ported verbatim from the prototype (checked for undefined names; behaviour is covered by npm run e2e)
 // Screens: PM queue, issues, work orders, parts and mechanics, plus the issue / work order detail HTML.
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
@@ -6,7 +6,8 @@ import { D, LST, ui, S, can, canWo, canPlan, settings, vehiclesSorted, basesSort
 import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
 import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip } from './bits';
 import { VIEWS, VT } from './registry';
-import { fileUrl, safeAsset, UP, pending, setProgressHook } from './files';
+import { fileUrl, safeAsset, UP, pending, setProgressHook, normalizeFile, fileType } from './files';
+import { woHead, woRows } from './views-a';
 import { backBtn, routeLabel, route, allowedRoutes } from './nav';
 
 

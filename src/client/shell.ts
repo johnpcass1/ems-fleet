@@ -1,4 +1,3 @@
-// @ts-nocheck -- ported from the prototype
 /** The page frame: nav, banners, the current screen, and the login / change-password screens. */
 import { ROLES } from '../shared/constants';
 import { D, S, COLS, hasSample, setRenderHook, role } from './state';
@@ -48,7 +47,7 @@ export function render() {
   if (S.connFailed) b += '<div class="banner bad" role="status">Can’t reach the server right now. Showing the last data received.</div>';
   if (hasSample()) b += '<div class="banner info mobonly" role="status">Sample data is loaded</div>';
   $('#banners').innerHTML = b;
-  const view = $('#view'), ae = document.activeElement;
+  const view = $('#view'), ae: any = document.activeElement;
   const aid = ae && view.contains(ae) && ae.id ? ae.id : null, ss = aid && ae.selectionStart != null ? [ae.selectionStart, ae.selectionEnd] : null;
   let html;
   try { html = S.ready ? VIEWS[r]() : '<p class="muted">Loading fleet data...</p>'; } catch (e) { console.error(e); html = '<div class="warnbox bad">Something went wrong drawing this page. Try reloading.</div>'; }

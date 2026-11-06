@@ -1,4 +1,3 @@
-// @ts-nocheck -- ported from the prototype; every action now goes through the server API
 /** Forms, button actions and global event wiring. */
 import { RANK, checkReading, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
@@ -19,7 +18,7 @@ import { userForms, userActs } from './users-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
-export function openVehicleForm(v){
+export function openVehicleForm(v?){
   const e=!!v;v=v||{status:'in_service',type:'Type II ambulance'};
   const progs=LST.pmPrograms.map(p=>[p.id,p.name]);
   showDrawer(e?`Edit ${v.unit}`:'Add vehicle',`<form data-form="vehicle" data-id="${e?esc(v.id):''}" id="vehForm" novalidate>
@@ -96,7 +95,7 @@ async function saveReading(v,h,km,accept){
   toast(res.flagged?'Reading flagged for a supervisor. The unit’s hours were not changed.':'Reading saved');closeDrawer();
 }
 
-export function openIssueForm(vid){
+export function openIssueForm(vid?){
   clearPending();
   showDrawer('Report a problem',issueFormHtml(vid||(ui.vehicleId&&route()==='vehicle'?ui.vehicleId:null)));
   updateIssueDup(true);renderThumbs();
@@ -107,7 +106,7 @@ FORMS.issue=async f=>{
   const o={vehicleId:val('ri-vehicle'),title:val('ri-title'),description:val('ri-desc'),severity:sev,hours:nv(val('ri-hours'))};
   let nid=null;
   if(await run(async()=>{nid=await submitIssue(o);})){
-    const files=pendingFiles.map(p=>p.file);
+    const files=pending.map(p=>p.file);
     toast(sev==='critical'?'Reported. The unit is now out of service.':'Problem reported');closeDrawer();clearPending();
     if(files.length&&nid)await attachFiles('issues',nid,files);
   }
@@ -132,7 +131,7 @@ FORMS.line=async f=>{
   if(await run(()=>addLine(wo.id,line)))toast('Line added');
 };
 
-export function openPartForm(p){
+export function openPartForm(p?){
   const e=!!p;p=p||{};
   showDrawer(e?`Edit ${p.number}`:'Add part',`<form data-form="part" data-id="${e?esc(p.id):''}" id="partForm" novalidate>
     <div class="fgrid">${field('Part number',inp('pt-num',p.number||('P-'+(1001+LST.parts.length)),'text','required'))}${field('Unit cost (G$)',inp('pt-cost',p.unitCost??0,'number','min="0" step="1" required'))}</div>
@@ -157,7 +156,7 @@ FORMS.receive=async f=>{
   let r;
   if(await run(async()=>{r=await receivePart(p.id,q,c);})){toast(`${q} received. New unit cost ${gyd(r.unitCost)}.`);closeDrawer();}
 };
-export function openMechForm(m){
+export function openMechForm(m?){
   const e=!!m;m=m||{};
   showDrawer(e?'Edit mechanic':'Add mechanic',`<form data-form="mech" data-id="${e?esc(m.id):''}" id="mechForm" novalidate>
     ${field('Name',inp('mc-name',m.name,'text','required'))}${field('Location',inp('mc-shop',m.shop,'text'))}
@@ -169,7 +168,7 @@ FORMS.mech=async f=>{
   const o={name:val('mc-name'),shop:val('mc-shop'),phone:val('mc-phone'),region:val('mc-region')};
   if(await run(()=>saveMech(f.dataset.id||null,o))){toast('Mechanic saved');closeDrawer();}
 };
-export function openBaseForm(b){
+export function openBaseForm(b?){
   const e=!!b;b=b||{};
   showDrawer(e?`Edit ${b.name}`:'Add base',`<form data-form="base" data-id="${e?esc(b.id):''}" id="baseForm" novalidate>
     ${field('Base name',inp('bs-name',b.name,'text','required'))}${field('Region',inp('bs-region',b.region,'text'))}
@@ -186,7 +185,7 @@ const taskRow=t=>{const n=++pfN;return `<div class="panel trow" data-tid="${esc(
   <div class="fgrid">${field('Task',`<input id="pf-n-${n}" name="tn" type="text" value="${esc(t.name||'')}" required>`)}${field('Group',`<input id="pf-g-${n}" name="tg" type="text" value="${esc(t.group||'')}">`)}</div>
   <div class="fgrid">${field('Every (hours)',`<input id="pf-h-${n}" name="th" type="number" min="0" value="${esc(t.intervalHours??'')}" inputmode="numeric">`)}${field('Every (days)',`<input id="pf-d-${n}" name="td" type="number" min="0" value="${esc(t.intervalDays??'')}" inputmode="numeric">`)}${field('Every (km)',`<input id="pf-k-${n}" name="tk" type="number" min="0" value="${esc(t.intervalKm??'')}" inputmode="numeric">`)}</div>
   <button class="btn sm danger" type="button" data-act="prog-rmtask" id="pf-rm-${n}">Remove task</button></div>`;};
-export function openProgramForm(p){
+export function openProgramForm(p?){
   const e=!!p;p=p||{name:'',appliesTo:'Type II ambulance',tasks:[]};
   showDrawer(e?'Edit PM program':'Add PM program',`<form data-form="program" data-id="${e?esc(p.id):''}" id="progForm" novalidate>
     <div class="warnbox">Confirm intervals with the manufacturer’s schedule. A task is due at whichever limit (hours, days or km) comes first.</div>
@@ -289,7 +288,7 @@ export const acts:Record<string,any>={
   'wo-rmline':async el=>{const wo=D.workOrders[ui.drawer.id];if(!wo)return;await run(()=>removeLine(wo.id,el.dataset.line));},
   'wo-notes':async()=>{if(await run(()=>patchWo(ui.drawer.id,{notes:$('#wo-notes').value})))toast('Notes saved');},
   'wo-act':async el=>{
-    const id=ui.drawer.id,wo=D.workOrders[id],a=el.dataset.a,p={};if(!wo)return;
+    const id=ui.drawer.id,wo=D.workOrders[id],a=el.dataset.a,p:any={};if(!wo)return;
     if(a==='schedule')p.date=val('wo-sched');
     if(a==='start')p.expectedReturn=val('wo-eta')||null;
     if(a==='hold')p.reason=val('wo-hold');
@@ -309,18 +308,18 @@ export const acts:Record<string,any>={
 
 export function wireEvents(){
 /* ---- events ---- */
-document.addEventListener('click',e=>{
+document.addEventListener('click',(e:any)=>{
   const el=e.target.closest('[data-act]');if(!el||el.disabled)return;
   const f=acts[el.dataset.act];if(f){if(el.tagName==='A')e.preventDefault();Promise.resolve(f(el,e)).catch(err=>console.error(err));}
 });
-document.addEventListener('submit',async e=>{
+document.addEventListener('submit',async (e:any)=>{
   const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();
   const h=FORMS[f.dataset.form];if(!h)return;
   const b=f.querySelector('button[type=submit]');if(b)b.disabled=true;
   try{await h(f);}catch(err){console.error(err);toast('Something went wrong. Please try again.',true);}
   if(b&&document.contains(b))b.disabled=false;
 });
-document.addEventListener('input',e=>{
+document.addEventListener('input',(e:any)=>{
   const el=e.target,d=el.dataset||{};
   if(el.closest&&el.closest('#moveForm')){updateMoveForm();return;}
   if(d.filter){
@@ -337,7 +336,7 @@ document.addEventListener('input',e=>{
     case 'ln-part':{const p=D.parts[el.value];if(p){$('#ln-desc').value=p.description;$('#ln-cost').value=p.unitCost;}break;}
   }
 });
-document.addEventListener('keydown',e=>{
+document.addEventListener('keydown',(e:any)=>{
   if(e.key==='Escape'){if($('#confirmRoot .dlg'))cfDone(false);else if($('#drawerRoot .drawer'))closeDrawer();return;}
   if(e.key==='Tab'){
     const root=$('#confirmRoot .dlg')||$('#drawerRoot .drawer');if(!root)return;
@@ -347,13 +346,13 @@ document.addEventListener('keydown',e=>{
     else if(!root.contains(document.activeElement)){e.preventDefault();first.focus();}
   }
 });
-document.addEventListener('change',e=>{
+document.addEventListener('change',(e:any)=>{
   const el=e.target;if(!el||el.type!=='file')return;
   const files=[...(el.files||[])];
   if(el.id==='ri-photos'||el.id==='ri-pdf'){el.value='';addPending(files);return;}
   if(el.dataset.att){const [coll,id]=el.dataset.att.split(':');el.value='';attachFiles(coll,id,files);}
 });
-document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#nav a, .brand'))clearNavStack();},true);
+document.addEventListener('click',(e:any)=>{if(e.target.closest&&e.target.closest('#nav a, .brand'))clearNavStack();},true);
 window.addEventListener('hashchange',()=>{
   if(nav.skipNext){setSkipNext(false);viewChanged();return;}
   if(nav.pendingRestore){const e=nav.pendingRestore;setPendingRestore(null);if(route()===e.route)applyNav(e);else restoreNav(e);return;}

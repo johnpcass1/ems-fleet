@@ -1,4 +1,4 @@
-// @ts-nocheck -- ported from the prototype; behaviour is covered by the e2e run
+// @ts-nocheck -- ported verbatim from the prototype (checked for undefined names; behaviour is covered by npm run e2e)
 // Screens: reports (with CSV export) and setup.
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';

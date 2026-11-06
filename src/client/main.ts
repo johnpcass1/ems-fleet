@@ -101,7 +101,8 @@ async function boot() {
   setRouteGetter(route);
   setProgressHook(refreshAtt);
   try {
-    const r = await api('GET', '/auth/me', undefined, { quiet: true });
+    const r = await api('GET', '/auth/session', undefined, { quiet: true });
+    if (!r.user) { showLogin(); return; }
     S.me = r.user;
     if (S.me!.mustChangePassword) showForcedChange(); else await startApp();
   } catch {

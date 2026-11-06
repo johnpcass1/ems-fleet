@@ -38,7 +38,7 @@ export function syncNow(): Promise<boolean> {
     try {
       const res = await api('GET', '/sync?since=' + S.cursor, undefined, { quiet: false });
       const changed = res.full || Object.keys(res.data || {}).length > 0 || Object.keys(res.deleted || {}).length > 0;
-      if (changed || !S.ready) applySync(res);
+      if (changed || !S.ready) { applySync(res); scheduleRender(); }
       else S.cursor = res.cursor;
       if (S.connFailed) { S.connFailed = false; scheduleRender(); }
       return changed;

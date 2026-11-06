@@ -7,3 +7,4 @@ dist/
 e2e-output/
 test-results/
 playwright-report/
+docs/screenshots/FAIL-*

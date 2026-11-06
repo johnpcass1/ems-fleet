@@ -1,4 +1,3 @@
-// @ts-nocheck -- ported from the prototype
 /** The three read/write drawers (work order, problem, unit) and how they refresh when data changes. */
 import { D, S, ui, role } from './state';
 import { showDrawer, closeDrawer, drawerBack } from './dom';

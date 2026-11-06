@@ -86,6 +86,17 @@ app.post('/api/auth/login', async (c) => {
   return c.json({ user: publicMe({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds, mechanicId: u.mechanic_id, mustChangePassword: u.must_change_password }) });
 });
 
+/** Who am I? Answers 200 with `user: null` when nobody is logged in, so the login page loads without an error in the browser console. */
+app.get('/api/auth/session', async (c) => {
+  let user: any = null;
+  try {
+    await requireAuth(c, async () => { user = c.var.user; });
+  } catch (e) {
+    if (!(e instanceof HttpError && e.status === 401)) throw e;
+  }
+  return c.json({ user: user ? publicMe(user) : null });
+});
+
 const authed = new Hono<AppEnv>();
 authed.use('*', requireAuth);
 
