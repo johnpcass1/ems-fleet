@@ -80,7 +80,7 @@ describe('sync cursor', () => {
   });
   it('new people appear for name lookups', async () => {
     const a = await syncAll(fm);
-    const c = await api('POST', '/api/users', { cookie: fm, body: { email: 'new@x.gy', name: 'Nia New', role: 'crew' } });
+    const c = await api('POST', '/api/users', { cookie: fm, body: { email: 'new@x.gy', name: 'Nia New', role: 'crew', password: 'nia-start-pass-1' } });
     const b = await syncAll(fm, a.cursor);
     expect(b.data.people).toEqual([{ id: c.json.id, name: 'Nia New' }]);
   });

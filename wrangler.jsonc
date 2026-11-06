@@ -29,6 +29,7 @@
   },
   "vars": {
     "APP_URL": "https://gema-fleet.example.workers.dev",
+    "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
     "PBKDF2_ITERATIONS": "20000"
   },
   "observability": { "enabled": true },
@@ -56,6 +57,7 @@
       "triggers": { "crons": ["*/2 7 * * *"] },
       "vars": {
         "APP_URL": "https://gema-fleet-staging.example.workers.dev",
+        "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
         "PBKDF2_ITERATIONS": "20000"
       }
     }

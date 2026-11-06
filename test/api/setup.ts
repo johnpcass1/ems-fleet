@@ -10,7 +10,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   const db = (env as any).DB as D1Database;
   const tables = [
-    'audit_log', 'login_attempts', 'sessions', 'attachments', 'users', 'wo_pm_tasks', 'wo_issue_links', 'work_order_lines', 'work_orders', 'issues', 'moves', 'status_events', 'meter_readings',
+    'audit_log', 'login_attempts', 'account_tokens', 'auth_throttle', 'sessions', 'attachments', 'users', 'wo_pm_tasks', 'wo_issue_links', 'work_order_lines', 'work_orders', 'issues', 'moves', 'status_events', 'meter_readings',
     'vehicle_pm', 'vehicles', 'pm_tasks', 'pm_programs', 'parts', 'mechanics', 'settings', 'bases', 'tombstones', 'backup_jobs',
   ];
   await db.batch([...tables.map((t) => db.prepare(`DELETE FROM ${t}`)), db.prepare('UPDATE counter SET v = 0')]);

@@ -10,6 +10,8 @@ import {
 import { syncSince } from './sync';
 import * as rules from './rules';
 import * as users from './users';
+import { forgotPassword, publicMe, setPasswordFromLink, tokenInfo } from './accounts';
+import { emailEnabled, lastSinkMail, sinkActive } from './mail';
 import { deleteAttachment, downloadAttachment, uploadAttachment } from './files';
 import { backupStep, listBackups } from './backup';
 import { notifyIssueReported } from './notify';
@@ -49,7 +51,6 @@ app.get('/api/health', (c) => c.json({ ok: true }));
 
 /* ---------- login / logout ---------- */
 const loginIn = z.object({ email: z.string().trim().toLowerCase().max(200), password: z.string().max(200) });
-const publicMe = (u: any) => ({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, mustChangePassword: !!u.mustChangePassword });
 
 app.post('/api/auth/login', async (c) => {
   const i = parse(loginIn, await c.req.json().catch(() => ({})));
@@ -61,7 +62,7 @@ app.post('/api/auth/login', async (c) => {
   const u = await first<any>(c.env.DB, 'SELECT * FROM users WHERE email = ?', i.email);
   let ok = false;
   let iterations = 0;
-  if (u && u.active) {
+  if (u && u.active && String(u.password_hash).startsWith('pbkdf2-sha256$')) {
     const v = await verifyPassword(i.password, u.password_hash);
     ok = v.ok;
     iterations = v.iterations;
@@ -83,7 +84,18 @@ app.post('/api/auth/login', async (c) => {
   await createSession(c, u.id);
   let baseIds: string[] = [];
   try { baseIds = JSON.parse(u.base_ids); } catch { /* ignore */ }
-  return c.json({ user: publicMe({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds, mechanicId: u.mechanic_id, mustChangePassword: u.must_change_password }) });
+  return c.json({ user: publicMe({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds, mechanicId: u.mechanic_id, mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
+});
+
+/* ---------- email links: choose a password, forgot password (no login needed) ---------- */
+app.get('/api/auth/config', (c) => c.json({ emailEnabled: emailEnabled(c.env) }));
+app.post('/api/auth/forgot', forgotPassword);
+app.post('/api/auth/token-info', tokenInfo);
+app.post('/api/auth/set-password', setPasswordFromLink);
+/** Development only: the last email "sent" while MAIL_SINK=1 on localhost. Answers 404 everywhere else. */
+app.get('/api/dev/last-mail', async (c) => {
+  if (!sinkActive(c.env)) return c.json({ error: 'Not found.', code: 'not_found' }, 404);
+  return c.json({ mail: await lastSinkMail(c.env, c.req.query('to') || undefined) });
 });
 
 /** Who am I? Answers 200 with `user: null` when nobody is logged in, so the login page loads without an error in the browser console. */
@@ -94,7 +106,7 @@ app.get('/api/auth/session', async (c) => {
   } catch (e) {
     if (!(e instanceof HttpError && e.status === 401)) throw e;
   }
-  return c.json({ user: user ? publicMe(user) : null });
+  return c.json({ user: user ? publicMe(user) : null, emailEnabled: emailEnabled(c.env) });
 });
 
 const authed = new Hono<AppEnv>();
@@ -181,7 +193,9 @@ api.delete('/attachments/:id', deleteAttachment);
 api.get('/users', async (c) => c.json(await users.listUsers(c.env, c.var.user)));
 api.post('/users', async (c) => c.json(await users.createUser(c.env, c.var.user, await body(c))));
 api.put('/users/:id', async (c) => c.json(await users.updateUser(c.env, c.var.user, c.req.param('id'), await body(c))));
-api.post('/users/:id/reset-password', async (c) => c.json(await users.resetPassword(c.env, c.var.user, c.req.param('id'))));
+api.post('/users/:id/password', async (c) => c.json(await users.setPassword(c.env, c.var.user, c.req.param('id'), await body(c))));
+api.post('/users/:id/invite', async (c) => c.json(await users.resendInvite(c.env, c.var.user, c.req.param('id'))));
+api.post('/users/:id/reset-link', async (c) => c.json(await users.sendResetLink(c.env, c.var.user, c.req.param('id'))));
 api.post('/users/:id/deactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), false)));
 api.post('/users/:id/reactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), true)));
 

@@ -16,6 +16,7 @@ export const BACKUP_TABLES = [
   'counter', 'tombstones', 'bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'settings', 'vehicles', 'vehicle_pm', 'meter_readings', 'status_events', 'moves',
   'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log',
 ];
+// account_tokens and auth_throttle are left out on purpose: they only hold hashes of short-lived links and counters, and a restored link would be dead anyway.
 export const KEEP_BACKUPS = 30;
 export const CHUNK_ROWS = 1000;
 const FILE_RE = /^backups\/(\d{4}-\d{2}-\d{2})\.json\.gz$/;
@@ -45,6 +46,8 @@ export async function backupStep(env: Env, opts: { now?: Date; force?: boolean }
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(stamp),
       env.DB.prepare('DELETE FROM login_attempts WHERE at_ms < ?').bind(Date.now() - 24 * 3600e3),
+      env.DB.prepare('DELETE FROM auth_throttle WHERE at_ms < ?').bind(Date.now() - 24 * 3600e3),
+      env.DB.prepare('DELETE FROM account_tokens WHERE expires_at < ?').bind(new Date(Date.now() - 30 * 864e5).toISOString()),
     ]);
     // pieces left over from a backup that never finished on an earlier day
     const stale = await env.FILES.list({ prefix: 'backups/tmp/', limit: 200 });
