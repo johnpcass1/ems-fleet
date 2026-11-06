@@ -16,7 +16,7 @@
 
 - **Cross-site request forgery:** every change request must carry the header `X-Requested-With: gema-fleet` and, when the browser sends an `Origin`, it must match the site. A different website cannot add that header to a request without permission.
 - **Input checks:** every API input is validated (types, lengths, allowed values) before use. Queries use bound parameters only.
-- **Authorisation** is decided on the server for every request, using the role, bases and linked mechanic stored with the account, never values sent by the browser. Base supervisors and crew only reach their own bases' units. Mechanics only touch work orders assigned to them. The dispatcher receives a reduced feed with no parts, costs or notes.
+- **Authorisation** is decided on the server for every request, using the role, bases and linked mechanic stored with the account, never values sent by the browser. Base supervisors and crew only reach their own bases' units. Mechanics only see and work on work orders assigned to them, including their files. The dispatcher receives a reduced feed with no parts, costs or notes.
 - **Audit log:** every write adds a row (who, when, what, before and after) in the same database batch as the change.
 
 ## Files

@@ -20,7 +20,14 @@ function load(p: string): DocMap {
   for (const c of readdirSync(p)) {
     const d = join(p, c);
     if (!statSync(d).isDirectory()) continue;
-    out[c] = readdirSync(d).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(readFileSync(join(d, f), 'utf8')));
+    out[c] = readdirSync(d).filter((f) => f.endsWith('.json')).sort().map((f) => {
+      let doc = JSON.parse(readFileSync(join(d, f), 'utf8'));
+      // An export may wrap each record as { id, data, version }; unwrap it.
+      if (doc && typeof doc.data === 'object' && doc.data && !Array.isArray(doc.data) && 'version' in doc) doc = { ...doc.data, id: doc.id };
+      // The file name is the record id when the record itself does not carry one.
+      if (!doc.id) doc.id = f.replace(/\.json$/, '');
+      return doc;
+    });
   }
   return out;
 }

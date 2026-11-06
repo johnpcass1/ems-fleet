@@ -80,6 +80,10 @@ export async function downloadAttachment(c: Context<AppEnv>) {
   if (!FULL_READ.includes(user.role)) throw forbidden();
   const a = await first<any>(c.env.DB, 'SELECT * FROM attachments WHERE id = ?', c.req.param('id'));
   if (!a) throw notFound();
+  if (user.role === 'mechanic' && a.entity_type === 'work_order') {
+    const wo = await first<any>(c.env.DB, 'SELECT mechanic_id FROM work_orders WHERE id = ?', a.entity_id);
+    if (!wo || !user.mechanicId || wo.mechanic_id !== user.mechanicId) throw notFound();
+  }
   const obj = await c.env.FILES.get(a.r2_key);
   if (!obj) throw notFound('The file is missing from storage.');
   const isPdf = a.content_type === 'application/pdf';

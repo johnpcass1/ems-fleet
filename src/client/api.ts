@@ -53,7 +53,7 @@ export function syncNow(): Promise<boolean> {
 }
 
 /* ---------- polling ---------- */
-let timer: any = null, running = false, quiet = 0, getRoute: () => string = () => 'board';
+let timer: any = null, running = false, listening = false, quiet = 0, getRoute: () => string = () => 'board';
 export const setRouteGetter = (f: () => string) => { getRoute = f; };
 const BASE_MS = 20000, DISPATCH_MS = 15000;
 /** Poll faster on the dispatch wall; back off when nothing has changed for a while to save the daily request allowance. */
@@ -77,10 +77,14 @@ export function startPolling() {
     if (running) timer = setTimeout(tick, delay());
   };
   timer = setTimeout(tick, delay());
-  const wake = () => { quiet = 0; if (document.visibilityState === 'visible' && running) { clearTimeout(timer); timer = setTimeout(tick, 200); } };
+  if (listening) return;
+  listening = true;
+  const wake =() => { quiet = 0; if (document.visibilityState === 'visible' && running) { clearTimeout(timer); timer = setTimeout(tick, 200); } };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('focus', wake);
   for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { quiet = 0; }, { passive: true });
 }
 export function stopPolling() { running = false; clearTimeout(timer); timer = null; }
+/** Resolves once any sync already in flight has finished (used before logging out). */
+export const syncIdle = () => (syncing ? syncing.then(() => undefined, () => undefined) : Promise.resolve());
 export function resetSyncState() { S.cursor = 0; S.ready = false; }

@@ -254,9 +254,9 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
       const r = await page.evaluate(async () => ({ me: (await (await fetch('/api/auth/session', { credentials: 'same-origin' })).json()).user, sync: await (await fetch('/api/sync?since=0', { credentials: 'same-origin' })).json() }));
       const wos = r.sync.data.workOrders || [];
       if (!r.me.mechanicId) throw new Error('mechanic has no linked mechanic');
-      // Mechanics can read every work order (as in the prototype); they can only WORK on their own. Check the write side.
-      const other = wos.find((w) => w.mechanicId !== r.me.mechanicId && w.status === 'open');
-      if (other) { const st = await page.evaluate(async (id) => (await fetch(`/api/work-orders/${id}/lines`, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'gema-fleet', 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'labor', description: 'x', qty: 1, unitCost: 1 }) })).status, other.id); if (st !== 403) throw new Error('mechanic could edit another mechanic\'s work order: ' + st); errs.length = 0; }
+      // Mechanics only receive work orders assigned to them.
+      const other = wos.find((w) => w.mechanicId !== r.me.mechanicId);
+      if (other) throw new Error('mechanic received work order ' + other.number + ' assigned to someone else');
       await shot('23-mechanic-wos');
     }, tag);
   }
@@ -291,8 +291,10 @@ async function roleFlow(browser, ctxOpts, tag, who, secrets, kind) {
     const errs = [];
     page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
     page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+    let expected401 = 0; // the deliberate wrong-password login returns 401, which the browser logs as a console error
+    page.on('response', (r) => { if (r.status() === 401 && r.request().method() === 'POST' && r.url().endsWith('/api/auth/login')) expected401++; });
     await adminFlow(page, cfg, tag, secrets, errs);
-    await check(page, 'admin: no console errors', async () => { const real = errs; if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag);
+    await check(page, 'admin: no console errors', async () => { let skip = expected401; const real = errs.filter((e) => !(skip > 0 && /401/.test(e) && skip--)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag);
     await ctx.close();
     await roleFlow(browser, ctxOpts, tag, 'crew', secrets, 'crew');
     await roleFlow(browser, ctxOpts, tag, 'disp', secrets, 'dispatcher');

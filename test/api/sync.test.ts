@@ -85,3 +85,32 @@ describe('sync cursor', () => {
     expect(b.data.people).toEqual([{ id: c.json.id, name: 'Nia New' }]);
   });
 });
+
+describe('mechanic scoping in sync and downloads', () => {
+  it('a mechanic receives only work orders assigned to them, and loses one that is reassigned', async () => {
+    const mech = (await as('mechanic', { mechanicId: 'm-1' })).cookie;
+    const a = await syncAll(mech);
+    expect(a.data.workOrders.length).toBeGreaterThan(0);
+    expect(a.data.workOrders.every((w: any) => w.mechanicId === 'm-1')).toBe(true);
+    expect(byId(a.data.workOrders, 'wo-14')).toBeTruthy();
+    const r = await api('PATCH', '/api/work-orders/wo-14', { cookie: fm, body: { mechanicId: 'm-2' } });
+    expect(r.status).toBe(200);
+    const b = await syncAll(mech, a.cursor);
+    expect(b.deleted.workOrders).toContain('wo-14');
+    expect(b.data.workOrders ?? []).toHaveLength(0);
+    // the fleet manager still sees it, now assigned to m-2
+    expect(byId((await syncAll(fm)).data.workOrders, 'wo-14').mechanicId).toBe('m-2');
+  });
+  it('a mechanic cannot download files on another mechanic\'s work order', async () => {
+    const own = (await as('mechanic', { mechanicId: 'm-1' })).cookie;
+    const other = (await as('mechanic', { mechanicId: 'm-2' })).cookie;
+    const fd = new FormData();
+    fd.set('entity_type', 'work_order'); fd.set('entity_id', 'wo-14');
+    fd.set('file', new File([new TextEncoder().encode('%PDF-1.4\n%%EOF')], 'q.pdf', { type: 'application/pdf' }));
+    const up = await api('POST', '/api/attachments', { cookie: own, form: fd });
+    expect(up.status).toBe(200);
+    expect((await api('GET', `/api/attachments/${up.json.id}/file`, { cookie: own })).status).toBe(200);
+    expect((await api('GET', `/api/attachments/${up.json.id}/file`, { cookie: other })).status).toBe(404);
+    expect((await api('GET', `/api/attachments/${up.json.id}/file`, { cookie: fm })).status).toBe(200);
+  });
+});

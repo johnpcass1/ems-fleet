@@ -1,6 +1,6 @@
 /** Entry point: decide between the login screen and the app, then keep the data fresh. */
 import './style.css';
-import { api, setAuthHook, setRouteGetter, startPolling, stopPolling, syncNow, resetSyncState } from './api';
+import { api, setAuthHook, setRouteGetter, startPolling, stopPolling, syncNow, syncIdle, resetSyncState } from './api';
 import { S, COLS, D, LST, loadUi } from './state';
 import { $, toast, val } from './util';
 import { route } from './nav';
@@ -88,6 +88,9 @@ document.addEventListener('submit', async (e) => {
 });
 acts['change-password'] = () => showDrawer('Change password', changeFormHtml());
 acts['logout'] = async () => {
+  stopPolling();
+  started = false;
+  await syncIdle();
   try { await api('POST', '/auth/logout', {}, { quiet: true }); } catch { /* the session may already be gone */ }
   location.hash = '';
   toLogin('You are logged out.');

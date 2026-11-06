@@ -23,12 +23,19 @@ export async function syncSince(db: D1Database, actor: Actor, sinceRaw: number) 
   if (!full) stmts.push(db.prepare('SELECT coll, id FROM tombstones WHERE seq > ? AND seq <= ?').bind(since, cursor));
   const res = await db.batch(stmts);
   const data: Record<string, any[]> = {};
+  const deleted: Record<string, string[]> = {};
   colls.forEach((c, i) => {
     let docs = (res[i].results || []).map(SPECS[c].map);
     if (actor.role === 'dispatcher') docs = docs.map((d) => redactForDispatch(c, d));
+    if (actor.role === 'mechanic' && c === 'workOrders') {
+      // Mechanics only see work orders assigned to them. A work order reassigned away from them
+      // arrives as a deletion so it leaves their screen.
+      const mine = docs.filter((d: any) => actor.mechanicId && d.mechanicId === actor.mechanicId);
+      if (!full) for (const d of docs) if (!mine.includes(d)) (deleted[c] = deleted[c] || []).push(d.id);
+      docs = mine;
+    }
     if (full || docs.length) data[c] = docs;
   });
-  const deleted: Record<string, string[]> = {};
   if (!full) for (const t of (res[colls.length].results || []) as any[]) (deleted[t.coll] = deleted[t.coll] || []).push(t.id);
   return { cursor, full, data, deleted };
 }
