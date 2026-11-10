@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { api, as, seedDemo, row, rows, cookieOf, loginAs, PASSWORD } from './helpers';
+import { api, as, seedDemo, row, rows, cookieOf, loginAs, PASSWORD, superCookie } from './helpers';
 
 const PW = 'pat-start-pass-1';
 let fm: string, admin: string;
@@ -54,14 +54,18 @@ describe('users screen API', () => {
     expect((await mk(fm, { email: 'm@gema.test', role: 'mechanic', mechanicId: 'm-1' })).status).toBe(200);
     expect((await mk(fm, { email: 'PAT@gema.test' })).status).toBe(409);
   });
-  it('only a system administrator can create or change a system administrator', async () => {
+  it('only the super user can create or change a system administrator', async () => {
+    const su = await superCookie();
     expect((await mk(fm, { email: 'a2@gema.test', role: 'system_admin' })).status).toBe(403);
-    expect((await mk(admin, { email: 'a2@gema.test', role: 'system_admin' })).status).toBe(200);
+    expect((await mk(admin, { email: 'a2@gema.test', role: 'system_admin' })).status).toBe(403);
+    expect((await mk(su, { email: 'a2@gema.test', role: 'system_admin' })).status).toBe(200);
     const a2 = await row("SELECT id FROM users WHERE email = 'a2@gema.test'");
-    expect((await api('POST', `/api/users/${a2.id}/password`, { cookie: fm, body: { password: 'brand-new-pass-1' } })).status).toBe(403);
-    expect((await api('POST', `/api/users/${a2.id}/password`, { cookie: admin, body: { password: 'brand-new-pass-1' } })).status).toBe(200);
-    expect((await api('POST', `/api/users/${a2.id}/deactivate`, { cookie: fm })).status).toBe(403);
-    expect((await api('PUT', `/api/users/${a2.id}`, { cookie: fm, body: { name: 'x', role: 'crew' } })).status).toBe(403);
+    for (const c of [fm, admin]) {
+      expect((await api('POST', `/api/users/${a2.id}/password`, { cookie: c, body: { password: 'brand-new-pass-1' } })).status).toBe(403);
+      expect((await api('POST', `/api/users/${a2.id}/deactivate`, { cookie: c })).status).toBe(403);
+      expect((await api('PUT', `/api/users/${a2.id}`, { cookie: c, body: { name: 'x', role: 'crew' } })).status).toBe(403);
+    }
+    expect((await api('POST', `/api/users/${a2.id}/password`, { cookie: su, body: { password: 'brand-new-pass-1' } })).status).toBe(200);
   });
   it('edits role and bases', async () => {
     const id = (await mk(fm)).json.id;

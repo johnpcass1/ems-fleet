@@ -35,6 +35,7 @@ export const saveMech = (id: string | null, o: any) => after(id ? api('PUT', `/m
 export const saveBase = (id: string | null, o: any) => after(id ? api('PUT', `/bases/${id}`, o) : api('POST', '/bases', o));
 export const saveProgram = (id: string | null, o: any) => after(id ? api('PUT', `/pm-programs/${id}`, o) : api('POST', '/pm-programs', o));
 export const saveSettings = (o: any) => after(api('PUT', '/settings', o));
+export const saveFeatures = (o: { uploads: boolean }) => after(api('PUT', '/features', o));
 
 /* users and backups */
 export const listUsers = () => api<{ users: any[] }>('GET', '/users');
@@ -44,6 +45,7 @@ export const updateUser = (id: string, o: any) => after(api('PUT', `/users/${id}
 export const setUserPassword = (id: string, password: string) => api('POST', `/users/${id}/password`, { password });
 export const resendInvite = (id: string) => api<EmailResult>('POST', `/users/${id}/invite`);
 export const sendResetLink = (id: string) => api<EmailResult>('POST', `/users/${id}/reset-link`);
+export const saveUserPermissions = (id: string, overrides: Record<string, boolean>) => api<{ ok: boolean; overrides: Record<string, boolean> }>('POST', `/users/${id}/permissions`, { overrides });
 export const setUserActive = (id: string, active: boolean) => api('POST', `/users/${id}/${active ? 'reactivate' : 'deactivate'}`);
 export const listBackups = () => api<{ backups: any[] }>('GET', '/admin/backups');
 export const backupStep = (force: boolean) => api<{ status: string; step?: number; of?: number }>('POST', '/admin/backups/step', { force });

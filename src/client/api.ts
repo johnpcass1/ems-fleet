@@ -1,4 +1,4 @@
-import { applySync, S, scheduleRender } from './state';
+import { applyMe, applySync, S, scheduleRender } from './state';
 import { uerr } from './util';
 
 export class ApiError extends Error {
@@ -27,7 +27,7 @@ export async function api<T = any>(method: string, path: string, body?: any, opt
   const code = json?.code ?? null;
   if (res.status === 401 && path !== '/auth/login') { if (!opts.quiet) authHook('login'); }
   if (res.status === 403 && code === 'must_change_password') authHook('change-password');
-  throw new ApiError(res.status, json?.error || 'Something went wrong. Please try again.', code);
+  throw new ApiError(res.status, json?.message || json?.error || 'Something went wrong. Please try again.', code);
 }
 
 /* ---------- sync: first load gets everything, after that only what changed ---------- */
@@ -38,8 +38,9 @@ export function syncNow(): Promise<boolean> {
     try {
       const res = await api('GET', '/sync?since=' + S.cursor, undefined, { quiet: false });
       const changed = res.full || Object.keys(res.data || {}).length > 0 || Object.keys(res.deleted || {}).length > 0;
+      const meChanged = applyMe(res.me);
       if (changed || !S.ready) { applySync(res); scheduleRender(); }
-      else S.cursor = res.cursor;
+      else { S.cursor = res.cursor; if (meChanged) scheduleRender(); }
       if (S.connFailed) { S.connFailed = false; scheduleRender(); }
       return changed;
     } catch (e: any) {

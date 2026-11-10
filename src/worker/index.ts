@@ -4,7 +4,7 @@ import type { AppEnv, Env } from './env';
 import { HttpError, bad, forbidden, nowISO, parse, zId } from './http';
 import { Tx, SEQ, all, first } from './db';
 import {
-  COOKIE, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, lockedUntil, passwordProblem,
+  COOKIE, actorFrom, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, lockedUntil, passwordProblem,
   recordAttempt, requireAuth, verifyPassword,
 } from './auth';
 import { syncSince } from './sync';
@@ -15,7 +15,7 @@ import { emailEnabled, lastSinkMail, sinkActive } from './mail';
 import { deleteAttachment, downloadAttachment, uploadAttachment } from './files';
 import { backupStep, listBackups } from './backup';
 import { notifyIssueReported } from './notify';
-import { hasPerm } from '../shared/perm';
+import { can } from '../shared/perm';
 import { getCookie } from 'hono/cookie';
 
 const app = new Hono<AppEnv>();
@@ -82,9 +82,7 @@ app.post('/api/auth/login', async (c) => {
   stmts.push(c.env.DB.prepare('INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(now, u.id, u.email, 'auth.login', 'user', u.id, now, now));
   await c.env.DB.batch(stmts);
   await createSession(c, u.id);
-  let baseIds: string[] = [];
-  try { baseIds = JSON.parse(u.base_ids); } catch { /* ignore */ }
-  return c.json({ user: publicMe({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds, mechanicId: u.mechanic_id, mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
+  return c.json({ user: publicMe({ ...actorFrom(c.env, u), mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
 });
 
 /* ---------- email links: choose a password, forgot password (no login needed) ---------- */
@@ -146,7 +144,11 @@ const api = new Hono<AppEnv>();
 api.use('*', blockUntilPasswordChanged);
 const body = (c: any) => c.req.json().catch(() => ({}));
 
-api.get('/sync', async (c) => c.json(await syncSince(c.env.DB, c.var.user, Number(c.req.query('since') || 0))));
+/** `me` rides along on every sync (even when nothing else changed) so a change to someone's permissions reaches their screen without a re-login. */
+api.get('/sync', async (c) => {
+  const u = c.var.user;
+  return c.json({ ...(await syncSince(c.env.DB, u, Number(c.req.query('since') || 0))), me: { role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, isSuperuser: !!u.isSuper, perms: u.perms ?? {} } });
+});
 
 /* vehicles */
 api.post('/vehicles', async (c) => c.json(await rules.createVehicle(c.env, c.var.user, await body(c))));
@@ -181,6 +183,7 @@ api.post('/bases', async (c) => c.json(await rules.saveBase(c.env, c.var.user, n
 api.put('/bases/:id', async (c) => c.json(await rules.saveBase(c.env, c.var.user, c.req.param('id'), await body(c))));
 api.post('/pm-programs', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, null, await body(c))));
 api.put('/pm-programs/:id', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, c.req.param('id'), await body(c))));
+api.put('/features', async (c) => c.json(await rules.saveFeatures(c.env, c.var.user, await body(c))));
 api.put('/settings', async (c) => c.json(await rules.saveSettings(c.env, c.var.user, await body(c))));
 api.post('/admin/sample/remove', async (c) => c.json(await rules.removeSample(c.env, c.var.user)));
 
@@ -193,6 +196,7 @@ api.delete('/attachments/:id', deleteAttachment);
 api.get('/users', async (c) => c.json(await users.listUsers(c.env, c.var.user)));
 api.post('/users', async (c) => c.json(await users.createUser(c.env, c.var.user, await body(c))));
 api.put('/users/:id', async (c) => c.json(await users.updateUser(c.env, c.var.user, c.req.param('id'), await body(c))));
+api.post('/users/:id/permissions', async (c) => c.json(await users.setPermissions(c.env, c.var.user, c.req.param('id'), await body(c))));
 api.post('/users/:id/password', async (c) => c.json(await users.setPassword(c.env, c.var.user, c.req.param('id'), await body(c))));
 api.post('/users/:id/invite', async (c) => c.json(await users.resendInvite(c.env, c.var.user, c.req.param('id'))));
 api.post('/users/:id/reset-link', async (c) => c.json(await users.sendResetLink(c.env, c.var.user, c.req.param('id'))));
@@ -200,7 +204,7 @@ api.post('/users/:id/deactivate', async (c) => c.json(await users.setActive(c.en
 api.post('/users/:id/reactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), true)));
 
 /* backups (system administrator only) */
-const needBackups = (c: any) => { if (!hasPerm(c.var.user.role, 'backups')) throw forbidden(); };
+const needBackups = (c: any) => { if (!can(c.var.user, 'backups')) throw forbidden(); };
 api.get('/admin/backups', async (c) => { needBackups(c); return c.json({ backups: await listBackups(c.env) }); });
 api.post('/admin/backups/step', async (c) => {
   needBackups(c);

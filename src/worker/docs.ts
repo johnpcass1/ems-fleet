@@ -127,6 +127,6 @@ export async function loadDoc(db: D1Database, coll: string, id: string) {
 export function redactForDispatch(coll: string, d: any) {
   if (coll === 'workOrders') return { ...d, lines: [], notes: '', attachments: undefined, approvedBy: null };
   if (coll === 'issues') return { ...d, description: '', attachments: undefined };
-  if (coll === 'settings') return { id: d.id, dueSoonHours: d.dueSoonHours, dueSoonDays: d.dueSoonDays, dueSoonKm: d.dueSoonKm, comebackDays: d.comebackDays };
+  if (coll === 'settings') return { id: d.id, dueSoonHours: d.dueSoonHours, dueSoonDays: d.dueSoonDays, dueSoonKm: d.dueSoonKm, comebackDays: d.comebackDays, features: { uploads: d.features?.uploads === true } };
   return d;
 }

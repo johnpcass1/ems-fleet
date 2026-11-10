@@ -46,11 +46,11 @@ export function drawUserbar() {
   const u = S.me;
   const el = $('#userbar');
   if (!u) { el.innerHTML = ''; el.dataset.sig = ''; return; }
-  const sig = u.name + u.role;
+  const sig = u.name + u.role + (u.isSuperuser ? 'S' : '');
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.innerHTML = `<div class="menu"><button type="button" class="userbtn" id="userMenuBtn" data-act="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="userPop" title="${esc(u.name)}">
-      <span class="av" aria-hidden="true">${esc(initials(u.name))}</span><span class="un"><b>${esc(u.name)}</b><small>${esc(ROLES[u.role] || u.role)}</small></span><span class="chev">${icon('down')}</span></button>
+      <span class="av" aria-hidden="true">${esc(initials(u.name))}</span><span class="un"><b>${esc(u.name)}</b><small>${esc(ROLES[u.role] || u.role)}${u.isSuperuser ? ' · Super user' : ''}</small></span><span class="chev">${icon('down')}</span></button>
     <div class="menupop up" id="userPop" role="menu" hidden>
       <button type="button" role="menuitem" data-act="change-password" id="chgPw">${icon('key')}Change password</button>
       <button type="button" role="menuitem" data-act="logout" id="logoutBtn">${icon('logout')}Log out</button></div></div>`;

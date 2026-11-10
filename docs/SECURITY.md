@@ -35,11 +35,19 @@
 - **Authorisation** is decided on the server for every request, using the role, bases and linked mechanic stored with the account, never values sent by the browser. Base supervisors and crew only reach their own bases' units. Mechanics only see and work on work orders assigned to them, including their files. The dispatcher receives a reduced feed with no parts, costs or notes.
 - **Audit log:** every write adds a row (who, when, what, before and after) in the same database batch as the change.
 
+## Permissions, the super user and features
+
+- Every permission is decided on the server from the person's row on each request: the super user (from `SUPERUSER_EMAILS`, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`) wins over the role default. The browser receives the finished list only to hide buttons.
+- Hierarchy, enforced on the server for roles, permissions, passwords, reset links, deactivation and creating accounts: the super user can manage anyone except themselves; a system administrator manages fleet managers and below; a fleet manager manages base supervisors and below; nobody manages their own permissions or role. A super user's account can be changed only by a super user. An editor can only switch on a permission they hold themselves, and only the super user can grant Manage people, Change setup or Backups. Every permission change is audit-logged with before and after.
+- Site-wide **features** (currently Photo and PDF uploads) are changed only through `PUT /api/features`, which answers 403 to everyone but the super user. The ordinary settings save ignores `features`, so a crafted request from a fleet manager or system administrator cannot change it.
+- Anyone who can edit the code or Cloudflare variables can change who is the super user; protect the repository and the Cloudflare account accordingly.
+
 ## Files
 
 - Allowed: PDF, JPEG, PNG, WebP up to 20 MB. The server checks the first bytes of the file (not just its name or declared type) and requires the declared type to match.
 - Stored in a private R2 bucket under random names. Downloads go through the API, so login and scope checks apply, and are sent with `X-Content-Type-Options: nosniff` and a safe `Content-Disposition`.
-- Only fleet managers and system administrators can delete an attachment.
+- Uploading needs the site-wide uploads feature to be on (off by default; refused with 403 `uploads_disabled` before the file is read, for everyone) and the person's `upload` permission. Viewing existing files is unchanged.
+- Only people with the "Remove photos and PDFs" permission (fleet managers and system administrators by default) can delete an attachment.
 
 ## Browser protections
 

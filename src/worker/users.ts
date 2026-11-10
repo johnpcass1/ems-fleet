@@ -7,9 +7,11 @@ import { emailEnabled, getMailer, inviteMessage, resetMessage, setPasswordLink }
 import { newToken, retireUnused } from './tokens';
 import { HttpError } from './http';
 import { ROLE_LIST } from '../shared/constants';
-import { hasPerm, type Actor } from '../shared/perm';
+import { can, canManageUser, cleanOverrides, effectivePerms, hasPerm, manageableRoles, PERM_KEYS, SUPER_ONLY_KEYS, type Actor } from '../shared/perm';
+import { isSuperuserEmail } from './env';
 
-const publicUser = (r: any) => ({
+const publicUser = (r: any, env?: Env) => ({
+  isSuperuser: env ? isSuperuserEmail(env, r.email) : false, permOverrides: parseOverrides(r.perm_overrides),
   id: r.id, email: r.email, name: r.name, role: r.role, baseIds: safeJson(r.base_ids), mechanicId: r.mechanic_id ?? null,
   active: !!r.active, mustChangePassword: !!r.must_change_password, invited: isInvited(r), lastLoginAt: r.last_login_at ?? null, createdAt: r.created_at,
 });
@@ -19,18 +21,31 @@ const isInvited = (r: any) => String(r.password_hash || '').startsWith(UNUSABLE)
 export const unusableHash = () => UNUSABLE + b64url(crypto.getRandomValues(new Uint8Array(16)));
 function safeJson(s: string): string[] { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
+const parseOverrides = (s: unknown) => { try { return cleanOverrides(JSON.parse(String(s || '{}'))); } catch { return {}; } };
+
 function requireUsersPerm(actor: Actor) {
-  if (!hasPerm(actor.role, 'users')) throw forbidden();
+  if (!can(actor, 'users')) throw forbidden();
 }
-/** Only a system administrator may create, edit or reset a system administrator. */
-function checkTargetRole(actor: Actor, targetRole: string) {
-  if (targetRole === 'system_admin' && actor.role !== 'system_admin') throw forbidden('Only a system administrator can manage system administrator accounts.');
+/**
+ * Who may manage whom. The super user: everyone but themselves. Anyone else: only roles below their own (a system administrator
+ * manages fleet managers and below, a fleet manager manages base supervisors and below). Nobody but the super user touches a super user's account.
+ * Looking after your own account (name, bases) is allowed so long as the role does not change.
+ */
+function checkTarget(env: Env, actor: Actor, target: { id?: string; email: string; role: string }, opts: { self?: boolean } = {}) {
+  if (opts.self && target.id === actor.id) return;
+  const isSuper = isSuperuserEmail(env, target.email);
+  if (isSuper && !actor.isSuper) throw forbidden('Only the super user can change the super user account.');
+  if (!canManageUser(actor, { id: target.id ?? '', role: target.role, isSuper })) throw forbidden('You cannot manage that person.');
+}
+/** The role being given must be one this actor may hand out. */
+function checkAssignRole(actor: Actor, role: string) {
+  if (!manageableRoles(actor).includes(role as any)) throw forbidden('You cannot give people that role.');
 }
 
 export async function listUsers(env: Env, actor: Actor) {
   requireUsersPerm(actor);
   const rows = await all(env.DB, 'SELECT * FROM users ORDER BY active DESC, name COLLATE NOCASE');
-  return { users: rows.map(publicUser) };
+  return { users: rows.map((r) => publicUser(r, env)) };
 }
 
 const userBase = {
@@ -74,7 +89,7 @@ export async function createUser(env: Env, actor: Actor, body: unknown) {
   if (invite === (i.password !== undefined)) throw bad('Choose a password for this person, or send them an invite link.');
   if (invite && !emailEnabled(env)) throw bad('Email is not set up, so invite links cannot be sent. Choose a password instead.', 'email_disabled');
   if (i.password !== undefined) { const p = passwordProblem(i.password, i.email); if (p) throw bad(p); }
-  checkTargetRole(actor, i.role);
+  checkAssignRole(actor, i.role);
   await validateLinks(env, i.role, i.baseIds, i.mechanicId);
   if (await first(env.DB, 'SELECT 1 FROM users WHERE email = ?', i.email)) throw conflict('Another user already has that email address.', 'duplicate_email');
   const id = uid('u');
@@ -97,7 +112,7 @@ async function targetFor(env: Env, actor: Actor, id: string) {
   requireUsersPerm(actor);
   const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
   if (!u) throw notFound();
-  checkTargetRole(actor, u.role);
+  checkTarget(env, actor, u, { self: true });
   if (!u.active) throw bad('This account is deactivated. Reactivate it first.');
   return u;
 }
@@ -132,7 +147,7 @@ export async function setPassword(env: Env, actor: Actor, id: string, body: unkn
   const i = parse(passwordIn, body);
   const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
   if (!u) throw notFound();
-  checkTargetRole(actor, u.role);
+  if (u.id !== actor.id) checkTarget(env, actor, u);
   if (u.id === actor.id) throw bad('Use Change password for your own account.');
   const p = passwordProblem(i.password, u.email);
   if (p) throw bad(p);
@@ -151,9 +166,9 @@ export async function updateUser(env: Env, actor: Actor, id: string, body: unkno
   const i = parse(updateIn, body);
   const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
   if (!u) throw notFound();
-  checkTargetRole(actor, u.role);
-  checkTargetRole(actor, i.role);
+  checkTarget(env, actor, u, { self: true });
   if (u.id === actor.id && i.role !== u.role) throw bad('You cannot change your own role.');
+  if (u.id !== actor.id || i.role !== u.role) checkAssignRole(actor, i.role);
   await validateLinks(env, i.role, i.baseIds, i.mechanicId);
   const tx = new Tx(env.DB, actor);
   tx.run(`UPDATE users SET name=?, role=?, base_ids=?, mechanic_id=?, seq=${SEQ}, updated_at=? WHERE id=?`, i.name, i.role, JSON.stringify(i.baseIds), i.mechanicId ?? null, tx.at, id);
@@ -166,7 +181,7 @@ export async function setActive(env: Env, actor: Actor, id: string, active: bool
   requireUsersPerm(actor);
   const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
   if (!u) throw notFound();
-  checkTargetRole(actor, u.role);
+  if (u.id !== actor.id) checkTarget(env, actor, u);
   if (u.id === actor.id) throw bad('You cannot deactivate your own account.');
   const tx = new Tx(env.DB, actor);
   tx.run(`UPDATE users SET active=?, seq=${SEQ}, updated_at=? WHERE id=?`, b2i(active), tx.at, id);
@@ -174,4 +189,35 @@ export async function setActive(env: Env, actor: Actor, id: string, active: bool
   tx.audit(active ? 'user.reactivate' : 'user.deactivate', 'user', id, { active: !!u.active }, { active });
   await tx.commit();
   return { ok: true };
+}
+
+/**
+ * Replace one person's permission changes. The body lists only the keys to change from the role default; anything equal to the default is dropped.
+ * Rules: you cannot edit yourself; only people below you (the super user: anyone); you can only turn ON what you effectively have yourself;
+ * users, setup and backups can only be granted by the super user. Turning things off is always allowed.
+ */
+const permsIn = z.object({ overrides: z.record(z.string(), z.boolean()) });
+export async function setPermissions(env: Env, actor: Actor, id: string, body: unknown) {
+  requireUsersPerm(actor);
+  const i = parse(permsIn, body);
+  const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
+  if (!u) throw notFound();
+  if (u.id === actor.id) throw forbidden('You cannot change your own permissions.');
+  checkTarget(env, actor, u);
+  for (const k of Object.keys(i.overrides)) if (!PERM_KEYS.includes(k)) throw bad(`Unknown permission: ${k}.`);
+  const before = parseOverrides(u.perm_overrides);
+  const next: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(i.overrides)) if (v !== hasPerm(u.role, k)) next[k] = v;
+  const was = effectivePerms({ role: u.role, permOverrides: before }), will = effectivePerms({ role: u.role, permOverrides: next });
+  for (const k of PERM_KEYS) {
+    if (will[k] && !was[k]) {
+      if (SUPER_ONLY_KEYS.includes(k) && !actor.isSuper) throw forbidden('Only the super user can grant that permission.');
+      if (!can(actor, k)) throw forbidden('You can only grant permissions you have yourself.');
+    }
+  }
+  const tx = new Tx(env.DB, actor);
+  tx.run(`UPDATE users SET perm_overrides=?, seq=${SEQ}, updated_at=? WHERE id=?`, JSON.stringify(next), tx.at, id);
+  tx.audit('user.permissions', 'user', id, { email: u.email, overrides: before }, { email: u.email, overrides: next });
+  await tx.commit();
+  return { ok: true, overrides: next };
 }

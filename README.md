@@ -10,13 +10,15 @@ It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, a
 
 | Role | What they can do |
 | --- | --- |
-| System administrator | Everything a fleet manager can do, plus manage backups and system administrator accounts |
+| System administrator | Everything a fleet manager can do, plus backups; manages fleet managers and below |
 | Fleet manager | Whole fleet: units, status, work orders and approvals, parts, setup, users |
 | Base supervisor | Their own bases: status, moving units, work orders, parts, reports |
 | Mechanic | Work orders assigned to them; log hours and report problems |
 | Crew | Report problems and log hours for their bases |
 | Dispatcher | The Dispatch screen only (which units are available), no costs or notes |
 | Viewer | Read only |
+
+Roles are only the starting point. A **super user** (set in code, see [docs/HANDOVER.md](docs/HANDOVER.md)) has every permission and controls site-wide **Features**, and a super user, system administrator or fleet manager can switch individual permissions on or off for the people below them (Users screen, **Permissions**). **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
 
 These rules are enforced by the server, not just hidden in the screen. People log in with an email and password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
 

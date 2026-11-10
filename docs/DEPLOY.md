@@ -100,6 +100,9 @@ npm run create-admin -- --email you@example.org --name "Your Name" --remote --en
 
 ## Updating the database later
 
+Release 0003 (`migrations/0003_user_permissions.sql`) adds one column to `users` for per-person permissions. The GitHub workflow applies it on deploy. If you deploy from Terminal, run `npm run db:migrate:remote` (and `npm run db:migrate:staging` for staging) before `npm run deploy`. Set the super user's address in `SUPERUSER_EMAILS` in `wrangler.jsonc` first (see [HANDOVER.md](HANDOVER.md)).
+
+
 Database changes are numbered files in `migrations/`. They are applied automatically by the GitHub workflow and never edited after release; a change is always a new file.
 
 ## Checking that it works

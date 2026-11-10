@@ -30,7 +30,9 @@
   "vars": {
     "APP_URL": "https://gema-fleet.example.workers.dev",
     "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
-    "PBKDF2_ITERATIONS": "20000"
+    "PBKDF2_ITERATIONS": "20000",
+    // Super user(s): comma-separated emails. Changed only by a code update (see docs/HANDOVER.md). Empty means nobody is a super user.
+    "SUPERUSER_EMAILS": "johnpcass3@gmail.com"
   },
   "observability": { "enabled": true },
   "env": {
@@ -58,7 +60,8 @@
       "vars": {
         "APP_URL": "https://gema-fleet-staging.example.workers.dev",
         "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
-        "PBKDF2_ITERATIONS": "20000"
+        "PBKDF2_ITERATIONS": "20000",
+        "SUPERUSER_EMAILS": "johnpcass3@gmail.com"
       }
     }
   }
