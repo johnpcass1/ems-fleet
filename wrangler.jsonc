@@ -47,7 +47,7 @@
         {
           "binding": "DB",
           "database_name": "gema-fleet-staging",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "4e6f8e46-0954-4d6a-b57e-abd1c7174c5f",
           "migrations_dir": "migrations"
         }
       ],
