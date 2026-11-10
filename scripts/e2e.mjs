@@ -381,7 +381,14 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     await login(page, secrets[who].email, secrets[who].pass); await page.waitForSelector('.urow', { timeout: 15000 });
     return { ctx, page, errs };
   };
+  const mkSuper = async () => {
+    const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(10000);
+    const errs = []; page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+    await login(page, secrets.adminEmail, secrets.adminPass); await page.waitForSelector('.urow', { timeout: 15000 });
+    return { ctx, page, errs };
+  };
   const fm = await mk('fm'), crew = await mk('crew'), sa = await mk('sysadm');
+  const su = await mkSuper();
   const shot = (pg, n) => pg.screenshot({ path: `${SHOTS}/${tag}-${n}.png` });
   await check(fm.page, 'fleet manager: no Features panel and no uploads switch in Setup', async () => {
     await fm.page.goto(BASE + '/#setup'); await fm.page.waitForSelector('#settingsForm');
@@ -400,35 +407,108 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     const row = (email) => fm.page.locator('#usersTable tr', { hasText: email });
     for (const email of [secrets.adminEmail, secrets.sysadm.email]) if (await row(email).getByRole('button').count()) throw new Error('fleet manager has actions on ' + email);
     if (await row(secrets.fm.email).getByRole('button', { name: 'Permissions' }).count()) throw new Error('Permissions on yourself');
-    if (!(await row(secrets.crew.email).getByRole('button', { name: 'Permissions' }).count())) throw new Error('no Permissions for crew');
+    if (await fm.page.getByRole('button', { name: 'Permissions' }).count()) throw new Error('fleet manager is offered Permissions');
+    if (await fm.page.locator('#nav a[data-r="roles"]').count()) throw new Error('fleet manager sees Roles & permissions');
+    if (await fm.page.locator('#backupsPanel').count()) throw new Error('fleet manager sees Backups');
     await fm.page.click('#addUser'); await fm.page.waitForSelector('#uf-role');
     const roles = await fm.page.$$eval('#uf-role option', (o) => o.map((x) => x.value));
     if (roles.includes('system_admin') || roles.includes('fleet_manager')) throw new Error('fleet manager may assign ' + roles.join());
     await fm.page.keyboard.press('Escape');
   }, tag);
-  await check(fm.page, 'fleet manager: Permissions drawer, disabled switches explain why; revoking Report problems reaches the crew member without a re-login', async () => {
-    await crew.page.goto(BASE + '/#board'); await crew.page.waitForSelector('#boardReport');
+  await check(fm.page, 'fleet manager: can still create a crew account and change a crew member\'s role to base supervisor; no role screen', async () => {
     await fm.page.goto(BASE + '/#users'); await fm.page.waitForSelector('#usersTable');
-    await fm.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
-    await fm.page.waitForSelector('#permsForm');
-    for (const k of ['users', 'setup', 'backups']) {
-      if (!(await fm.page.locator(`#perm-${k}`).isDisabled())) throw new Error(k + ' should be disabled');
-      if (!/Only the super user can grant this/.test(await fm.page.locator(`#why-${k}`).innerText())) throw new Error('no reason for ' + k);
-    }
-    if (await fm.page.locator('#perm-report').isDisabled()) throw new Error('report should be switchable');
-    await fm.page.locator('#perm-report').uncheck();
-    if (!(await fm.page.locator('#chg-report').isVisible())) throw new Error('no Changed badge');
-    await shot(fm.page, '16b-permissions-drawer-fleet-manager'); await noOverflow(fm.page);
-    await fm.page.click('#perm-save'); await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
-    if (!/Permissions saved/.test(await toastText(fm.page))) throw new Error('no saved toast');
+    await fm.page.click('#addUser'); await fm.page.waitForSelector('#userForm');
+    const email = `newbie-${tag}@example.org`;
+    await fm.page.fill('#uf-name', 'FM Crew ' + tag); await fm.page.fill('#uf-email', email); await fm.page.selectOption('#uf-role', 'crew');
+    await fm.page.locator('input[name=ufb]').first().check();
+    await fm.page.fill('#uf-pw', `Typed-newbie-${tag}-9`); await fm.page.fill('#uf-pw2', `Typed-newbie-${tag}-9`);
+    await fm.page.click('#uf-save'); await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    const row = fm.page.locator('#usersTable tr', { hasText: email });
+    await row.waitFor();
+    await row.getByRole('button', { name: 'Edit' }).click(); await fm.page.waitForSelector('#userForm');
+    await fm.page.selectOption('#uf-role', 'base_supervisor'); await fm.page.click('#uf-save');
+    await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    await fm.page.waitForFunction((e) => [...document.querySelectorAll('#usersTable tr')].some((r) => r.innerText.includes(e) && /Base supervisor/.test(r.innerText)), email);
+    if (await fm.page.getByRole('button', { name: 'Permissions' }).count()) throw new Error('Permissions button visible to a fleet manager');
+    await fm.page.goto(BASE + '/#roles'); await fm.page.waitForTimeout(400);
+    if (await fm.page.locator('#roleMatrix').count()) throw new Error('fleet manager reached the Roles & permissions screen');
+  }, tag);
+  await check(su.page, 'super user: Roles & permissions matrix, revoke Report problems from crew; the crew member loses the button within one sync; reset brings it back', async () => {
+    await crew.page.goto(BASE + '/#board'); await crew.page.waitForSelector('#boardReport');
+    await su.page.goto(BASE + '/#roles'); await su.page.waitForSelector('#roleMatrix');
+    if (!/These are the defaults for each role\. You can still adjust one person under Users/.test(await su.page.locator('#rolesNote').innerText())) throw new Error('help text missing');
+    if (await su.page.locator('#rp-crew-backups, #rrow-backups').count()) throw new Error('Backups in the role matrix');
+    for (const g of ['Units', 'Problems', 'Work orders', 'Parts and mechanics', 'Admin']) if (!(await su.page.locator('#roleMatrix tr.grp', { hasText: g }).count())) throw new Error('no group ' + g);
+    const picker = await su.page.locator('#rp-pick').isVisible();
+    if (picker) await su.page.selectOption('#rp-pick', 'crew');
+    await su.page.waitForTimeout(150);
+    if (await su.page.locator('#rp-crew-report').isDisabled()) throw new Error('crew cell not editable for the super user');
+    if (await su.page.locator('#rp-system_admin-report').isDisabled()) throw new Error('super user cannot edit the system_admin column');
+    await su.page.locator('#rp-crew-report').uncheck();
+    await su.page.locator('#rchg-crew-report').waitFor({ timeout: 3000 }).catch(() => { throw new Error('no Changed from default marker'); });
+    await shot(su.page, '17-roles-matrix'); await noOverflow(su.page);
+    await su.page.click('#rs-crew');
+    await su.page.waitForSelector('#cfT');
+    if (!/This changes what \d+ crew members? can do/.test(await su.page.locator('#cfM').innerText())) throw new Error('confirmation does not name the people: ' + await su.page.locator('#cfM').innerText());
+    await shot(su.page, '17b-roles-confirm');
+    await su.page.click('#cfYes');
+    await su.page.waitForFunction(() => /permissions saved/i.test(document.querySelector('#toasts')?.innerText || ''));
     await crew.page.evaluate(() => window.dispatchEvent(new Event('focus'))); // wakes the sync that normally runs every 20 s
     await crew.page.waitForFunction(() => !document.querySelector('#boardReport'), null, { timeout: 15000 });
-    // and back: Reset all to role default
-    await fm.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
-    await fm.page.waitForSelector('#permsForm'); await fm.page.click('#perm-resetall'); await fm.page.click('#perm-save');
-    await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    // the per-person drawer says where each state comes from
+    await su.page.goto(BASE + '/#users'); await su.page.waitForSelector('#usersTable');
+    await su.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
+    await su.page.waitForSelector('#permsForm');
+    if (!/Role change/.test(await su.page.locator('#src-report').innerText())) throw new Error('report should say Role change: ' + await su.page.locator('#src-report').innerText());
+    if (!/Role default/.test(await su.page.locator('#src-move').innerText())) throw new Error('move should say Role default');
+    await su.page.locator('#perm-move').check();
+    if (!/Personal change/.test(await su.page.locator('#src-move').innerText())) throw new Error('move should say Personal change');
+    await su.page.locator('#perm-move').uncheck();
+    if (await su.page.locator('#perm-backups').count()) throw new Error('Backups in the per-person drawer');
+    await shot(su.page, '16c-permissions-drawer-sources'); await noOverflow(su.page);
+    await su.page.click('#perm-cancel'); await su.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    // reset the role to its built-in defaults
+    await su.page.goto(BASE + '/#roles'); await su.page.waitForSelector('#roleMatrix');
+    if (await su.page.locator('#rp-pick').isVisible()) await su.page.selectOption('#rp-pick', 'crew');
+    await su.page.click('#rr-crew'); await su.page.waitForSelector('#cfT'); await su.page.click('#cfYes');
+    await su.page.waitForFunction(() => /reset to default/i.test(document.querySelector('#toasts')?.innerText || ''));
     await crew.page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await crew.page.waitForSelector('#boardReport', { timeout: 15000 });
+  }, tag);
+  await check(sa.page, 'system administrator: Roles & permissions with the system_admin column read-only; Permissions drawer for a crew member; no Backups', async () => {
+    await sa.page.goto(BASE + '/#roles'); await sa.page.waitForSelector('#roleMatrix');
+    if (await sa.page.locator('#rp-pick').isVisible()) { await sa.page.selectOption('#rp-pick', 'system_admin'); await sa.page.waitForTimeout(100); await shot(sa.page, '17c-roles-readonly-sysadmin'); }
+    const dis = await sa.page.$$eval('input[data-role="system_admin"]', (x) => x.every((i) => i.disabled));
+    if (!dis) throw new Error('system_admin column is editable by a system admin');
+    if (!/View only/.test(await sa.page.locator('th[data-role="system_admin"]').innerText())) throw new Error('no View only label');
+    if (await sa.page.locator('input[data-role="fleet_manager"]:disabled').count() === await sa.page.locator('input[data-role="fleet_manager"]').count()) throw new Error('fleet_manager column not editable');
+    if (!(await sa.page.locator('#rp-crew-users').isDisabled())) throw new Error('system admin can switch on Manage people for crew');
+    await shot(sa.page, '17d-roles-system-admin'); await noOverflow(sa.page);
+    await sa.page.goto(BASE + '/#users'); await sa.page.waitForSelector('#usersTable');
+    if (await sa.page.locator('#backupsPanel').count()) throw new Error('system admin sees the Backups panel');
+    const st = await sa.page.evaluate(async () => (await fetch('/api/admin/backups', { credentials: 'same-origin' })).status);
+    if (st !== 403) throw new Error('backups list answered ' + st);
+    await crew.page.goto(BASE + '/#board'); await crew.page.waitForSelector('#boardReport');
+    await sa.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
+    await sa.page.waitForSelector('#permsForm');
+    for (const k of ['users', 'setup']) {
+      if (!(await sa.page.locator(`#perm-${k}`).isDisabled())) throw new Error(k + ' should be disabled');
+      if (!/Only the super user can grant this/.test(await sa.page.locator(`#why-${k}`).innerText())) throw new Error('no reason for ' + k);
+    }
+    if (await sa.page.locator('#perm-backups').count()) throw new Error('Backups listed in the drawer');
+    await sa.page.locator('#perm-report').uncheck();
+    if (!(await sa.page.locator('#chg-report').isVisible())) throw new Error('no Changed badge');
+    await shot(sa.page, '16b-permissions-drawer-system-admin'); await noOverflow(sa.page);
+    await sa.page.click('#perm-save'); await sa.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    if (!/Permissions saved/.test(await toastText(sa.page))) throw new Error('no saved toast');
+    await crew.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await crew.page.waitForFunction(() => !document.querySelector('#boardReport'), null, { timeout: 15000 });
+    await sa.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
+    await sa.page.waitForSelector('#permsForm'); await sa.page.click('#perm-resetall'); await sa.page.click('#perm-save');
+    await sa.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    await crew.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await crew.page.waitForSelector('#boardReport', { timeout: 15000 });
+    for (let i = sa.errs.length - 1; i >= 0; i--) if (/403/.test(sa.errs[i])) sa.errs.splice(i, 1);
   }, tag);
   await check(sa.page, 'system administrator (not super): no Features panel, no actions on the super user, cannot assign system admin', async () => {
     await sa.page.goto(BASE + '/#setup'); await sa.page.waitForSelector('#settingsForm');
@@ -440,7 +520,7 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     if ((await sa.page.$$eval('#uf-role option', (o) => o.map((x) => x.value))).includes('system_admin')) throw new Error('system admin can assign system admin');
     await sa.page.keyboard.press('Escape');
   }, tag);
-  for (const x of [fm, crew, sa]) { await check(x.page, 'manager flow: no console errors', async () => { const real = x.errs.filter((e) => !/40[13]/.test(e)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag); await x.ctx.close(); }
+  for (const x of [fm, crew, sa, su]) { await check(x.page, 'manager flow: no console errors', async () => { const real = x.errs.filter((e) => !/40[13]/.test(e)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag); await x.ctx.close(); }
 }
 
 /** Fonts are self-hosted (the CSP allows 'self' only), so any request to another host is a fault. */

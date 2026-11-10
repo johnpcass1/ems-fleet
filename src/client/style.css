@@ -522,10 +522,11 @@ body.wallmode .dcell .e,body.wallmode .dcell .m{font-size:14px}
 /* ---------- roles & permissions matrix ---------- */
 .permrow .hint.src{display:inline-block;margin-top:0}
 .rpick{display:none;padding:0 12px 10px}
-table.rolemx{min-width:760px}
-table.rolemx th.pl{min-width:230px;text-align:left;text-transform:none;letter-spacing:0;font:500 14px/1.3 var(--sans);color:var(--ink);white-space:normal;position:sticky;left:0;z-index:1;background:var(--surface)}
+table.rolemx{min-width:700px}
+table.rolemx tbody tr:hover th.pl{background:var(--surface-2)}
+table.rolemx th.pl{min-width:190px;text-align:left;text-transform:none;letter-spacing:0;font:500 14px/1.3 var(--sans);color:var(--ink);white-space:normal;position:sticky;left:0;z-index:1;background:var(--surface)}
 table.rolemx thead th.pl{background:var(--surface-2);font:600 11.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-table.rolemx th.rc,table.rolemx td.rc{text-align:center;min-width:92px;white-space:normal}
+table.rolemx th.rc,table.rolemx td.rc{text-align:center;min-width:84px;white-space:normal}
 table.rolemx th.rc .rname{display:block;white-space:normal;line-height:1.2}
 table.rolemx th.rc .rro{display:block;margin-top:2px;font:500 10.5px/1.2 var(--sans);text-transform:none;letter-spacing:0;color:var(--muted)}
 table.rolemx tr.grp th{height:28px;background:var(--surface-2);font:600 11.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;position:sticky;left:0}

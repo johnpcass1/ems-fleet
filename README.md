@@ -10,7 +10,7 @@ It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, a
 
 | Role | What they can do |
 | --- | --- |
-| System administrator | Everything a fleet manager can do, plus backups; manages fleet managers and below |
+| System administrator | Everything a fleet manager can do, plus changing what roles and individual people can do; manages fleet managers and below. No backups |
 | Fleet manager | Whole fleet: units, status, work orders and approvals, parts, setup, users |
 | Base supervisor | Their own bases: status, moving units, work orders, parts, reports |
 | Mechanic | Work orders assigned to them; log hours and report problems |
@@ -18,7 +18,18 @@ It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, a
 | Dispatcher | The Dispatch screen only (which units are available), no costs or notes |
 | Viewer | Read only |
 
-Roles are only the starting point. A **super user** (set in code, see [docs/HANDOVER.md](docs/HANDOVER.md)) has every permission and controls site-wide **Features**, and a super user, system administrator or fleet manager can switch individual permissions on or off for the people below them (Users screen, **Permissions**). **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
+Roles are only the starting point, and there are three levels of administrator:
+
+| | Fleet manager | System administrator | Super user |
+| --- | --- | --- | --- |
+| Add people and set roles | Base supervisor and below | Fleet manager and below | Anyone (including system administrators) |
+| Change what one person can do (Users > **Permissions**) | No | Fleet manager and below | Anyone |
+| Change what a role can do by default (**Roles & permissions**) | No | Fleet manager and below (not system administrator) | Every role |
+| Grant Manage people or Change setup | No | No | Yes |
+| Backups (panel, list, download, run) | No | No | Yes (the nightly backup runs for everyone) |
+| Features (Photo and PDF uploads) | No | No | Yes |
+
+The **super user** is set in code (see [docs/HANDOVER.md](docs/HANDOVER.md)) and has every permission. The **Roles & permissions** screen (Admin group in the sidebar) is a matrix of what each role can do by default, with a "Changed" marker against the built-in defaults, **Reset to default** and a confirmation that says how many people a change affects. A person's own changes beat their role's, which beat the built-in default. Each switch in the per-person drawer says whether it comes from the role default, a role change or a personal change. **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
 
 These rules are enforced by the server, not just hidden in the screen. People log in with an email and password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
 
@@ -65,4 +76,4 @@ docs/         Deploy, hand-over, security and restore guides
 
 How data reaches the browser: the browser asks `GET /api/sync?since=<cursor>` about every 20 seconds (15 seconds on the Dispatch screen) and whenever the window is focused again. The server returns only what changed since the cursor, including deletions. Every change goes through an action endpoint (for example "start this work order") where the server checks the person's role, validates the input, applies all related changes in one database batch, and writes an audit log row.
 
-The website's look and behaviour is the same as the prototype. Differences: there is a login page, a Users screen, a Backups panel, no role switcher, and no "Load sample data" button (administrators can still "Remove sample data").
+The website's look and behaviour is the same as the prototype. Differences: there is a login page, a Users screen, a Roles & permissions screen, a Backups panel (super user only), no role switcher, and no "Load sample data" button (administrators can still "Remove sample data").

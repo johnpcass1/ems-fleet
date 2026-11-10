@@ -98,7 +98,7 @@ function permsFormHtml(u: any) {
   const roleName = ROLES[u.role as keyof typeof ROLES] || u.role;
   /** The role's value for this item: its built-in default with any change made on Roles & permissions. */
   const roleVal = (k: string) => roleHas(u.role, k, rc);
-  const srcText = (personal: boolean, k: string) => personal ? 'Personal change' : typeof rc[k] === 'boolean' && rc[k] !== roleHas(u.role, k) ? `Role change: all ${roleName.toLowerCase()} people` : 'Role default';
+  const srcText = (personal: boolean, k: string) => personal ? 'Personal change' : typeof rc[k] === 'boolean' && rc[k] !== roleHas(u.role, k) ? 'Role change (applies to the whole role)' : 'Role default';
   const group = (g: { title: string; items: [string, string][] }) => `<fieldset class="f permgrp"><legend class="l">${esc(g.title)}</legend>${g.items.map(([k, label]) => {
     const def = roleVal(k), on = typeof ov[k] === 'boolean' ? ov[k] : def;
     const blocked = !on && (SUPER_ONLY_KEYS.includes(k) ? !me.isSuperuser : !canActor(me, k));
@@ -108,7 +108,7 @@ function permsFormHtml(u: any) {
       <span>${esc(label)} <span class="badge warn" id="chg-${k}" ${on === def ? 'hidden' : ''}>Changed</span><br><span class="hint src" id="src-${k}">${esc(srcText(on !== def, k))}</span>${why ? `<br><span class="hint" id="why-${k}">${esc(why)}</span>` : ''}</span></label>
       ${blocked ? '' : `<button type="button" class="btn link sm" data-act="perm-reset" data-key="${k}" id="rst-${k}" ${on === def ? 'hidden' : ''}>Reset to role default</button>`}</div>`;
   }).join('')}</fieldset>`;
-  return `<form data-form="perms" data-id="${esc(u.id)}" id="permsForm" data-role-name="${esc(roleName.toLowerCase())}" novalidate>
+  return `<form data-form="perms" data-id="${esc(u.id)}" id="permsForm" novalidate>
     <p style="margin-top:0"><b>${esc(u.name)}</b> <span class="muted">· ${esc(roleName)}</span></p>
     <p class="small muted">Switches show what this person can do now. Under each one: <b>Role default</b> (the built-in default for the role), <b>Role change</b> (the role was changed on Roles &amp; permissions, which applies to everyone in it) or <b>Personal change</b> (set only for this person; marked “Changed”). If you change their role later, personal changes stay. Where a unit’s base matters, the person’s bases still apply.</p>
     ${PERM_GROUPS.map(group).join('')}
@@ -118,7 +118,7 @@ export function syncPermsForm() {
   document.querySelectorAll<HTMLInputElement>('#permsForm input[data-perm]').forEach((c) => {
     const k = c.dataset.perm, changed = c.checked !== (c.dataset.def === '1');
     const b = document.getElementById('chg-' + k), r = document.getElementById('rst-' + k), s = document.getElementById('src-' + k);
-    if (s) s.textContent = changed ? 'Personal change' : c.dataset.rolechg === '1' ? `Role change: all ${document.getElementById('permsForm')?.dataset.roleName || ''} people` : 'Role default';
+    if (s) s.textContent = changed ? 'Personal change' : c.dataset.rolechg === '1' ? 'Role change (applies to the whole role)' : 'Role default';
     if (b) b.hidden = !changed;
     if (r) r.hidden = !changed;
   });

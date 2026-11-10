@@ -108,4 +108,4 @@ Database changes are numbered files in `migrations/`. They are applied automatic
 ## Checking that it works
 
 - `https://<your address>/api/health` shows `{"ok":true}`.
-- After the first night (around 03:00 Guyana time), log in as the system administrator, open **Users**, and look at the Backups panel. You can also press **Back up now**.
+- After the first night (around 03:00 Guyana time), log in as the super user, open **Users**, and look at the Backups panel (only the super user sees it). You can also press **Back up now**.
