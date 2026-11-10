@@ -168,6 +168,11 @@ export async function updateUser(env: Env, actor: Actor, id: string, body: unkno
   if (!u) throw notFound();
   checkTarget(env, actor, u, { self: true });
   if (u.id === actor.id && i.role !== u.role) throw bad('You cannot change your own role.');
+  if (u.id === actor.id && !actor.isSuper) {
+    // Bases and the linked mechanic decide what someone can see and work on, so nobody widens their own reach.
+    const sameBases = JSON.stringify([...safeJson(u.base_ids)].sort()) === JSON.stringify([...i.baseIds].sort());
+    if (!sameBases || (i.mechanicId ?? null) !== (u.mechanic_id ?? null)) throw forbidden('You cannot change your own bases or linked mechanic. Ask the person above you.');
+  }
   if (u.id !== actor.id || i.role !== u.role) checkAssignRole(actor, i.role);
   await validateLinks(env, i.role, i.baseIds, i.mechanicId);
   const tx = new Tx(env.DB, actor);

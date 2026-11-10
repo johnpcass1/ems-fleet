@@ -189,3 +189,21 @@ describe('migration 0003', () => {
     await E.DB.prepare('DROP TABLE users_before').run();
   });
 });
+
+describe('self-edits cannot widen your own reach', () => {
+  it('someone granted "Manage people" can rename themselves but not change their own bases or linked mechanic', async () => {
+    const su = await superCookie();
+    const s = await as('base_supervisor', { email: 'sup-self@gema.test', baseIds: ['b-hq'] });
+    expect((await perms(su, s.user.id, { users: true })).status).toBe(200);
+    const put = (body: any) => api('PUT', `/api/users/${s.user.id}`, { cookie: s.cookie, body: { role: 'base_supervisor', mechanicId: null, ...body } });
+    expect((await put({ name: 'Renamed Supervisor', baseIds: ['b-hq'] })).status).toBe(200);
+    expect((await put({ name: 'Renamed Supervisor', baseIds: ['b-hq', 'b-linden'] })).status).toBe(403);
+    expect(JSON.parse((await row('SELECT base_ids FROM users WHERE id = ?', s.user.id)).base_ids)).toEqual(['b-hq']);
+  });
+  it('the super user can still edit their own bases', async () => {
+    const su = await superCookie();
+    const me = (await api('GET', '/api/auth/session', { cookie: su })).json.user;
+    const r = await api('PUT', `/api/users/${me.id}`, { cookie: su, body: { name: me.name, role: me.role, baseIds: ['b-hq'], mechanicId: null } });
+    expect(r.status).toBe(200);
+  });
+});
