@@ -1,16 +1,18 @@
-# Deploys GEMA Fleet to Cloudflare.
-#   push to main     -> run tests, apply database migrations, deploy PRODUCTION
-#   push to staging  -> run tests, apply database migrations, deploy STAGING
+# Tests and deploys GEMA Fleet on Cloudflare.
+#   pull request to main -> run tests; if the staging copy is set up, also publish the
+#                           proposed change to the STAGING copy so it can be tried before merging
+#   push to main         -> run tests, apply database migrations, deploy PRODUCTION
+#   push to staging      -> run tests, apply database migrations, deploy STAGING
+#   "Run workflow" button -> run the tests only
 # Needs two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see docs/DEPLOY.md).
 name: Deploy
 
 on:
   push:
     branches: [main, staging]
-
-concurrency:
-  group: deploy-${{ github.ref_name }}
-  cancel-in-progress: false
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -27,7 +29,11 @@ jobs:
 
   deploy:
     needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.ref_name }}
+      cancel-in-progress: false
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +66,55 @@ jobs:
       - name: Deploy (staging)
         if: github.ref_name == 'staging'
         run: npx wrangler deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # Publishes a proposed change (pull request) to the staging copy, which has its own database and
+  # file storage, so it can be tried out before it is merged. Production is never touched here.
+  preview:
+    needs: test
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: preview-staging
+      cancel-in-progress: false
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the staging copy is set up
+        id: staging
+        run: |
+          if grep -A3 '"gema-fleet-staging"' wrangler.jsonc | grep -q '00000000-0000-0000-0000-000000000000'; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "### Preview skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "The tests ran, but the staging copy isn't set up yet, so this change wasn't published for trying out. See *Staging copy* in docs/DEPLOY.md." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.staging.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.staging.outputs.ready == 'true'
+        run: npm ci
+      - if: steps.staging.outputs.ready == 'true'
+        run: npm run build
+      - name: Apply database migrations (staging)
+        if: steps.staging.outputs.ready == 'true'
+        run: npx wrangler d1 migrations apply DB --remote --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Publish this change to the staging copy
+        if: steps.staging.outputs.ready == 'true'
+        run: |
+          npx wrangler deploy --env staging | tee deploy.log
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "### Try this change before merging" >> "$GITHUB_STEP_SUMMARY"
+          echo "Staging copy: ${URL:-see the Cloudflare dashboard}" >> "$GITHUB_STEP_SUMMARY"
+          echo "It uses the staging database and files, not the live ones." >> "$GITHUB_STEP_SUMMARY"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

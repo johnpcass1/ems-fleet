@@ -82,6 +82,12 @@ Add two repository secrets (GitHub: Settings, Secrets and variables, Actions):
 - `CLOUDFLARE_ACCOUNT_ID`: shown in the Cloudflare dashboard sidebar.
 - `CLOUDFLARE_API_TOKEN`: create at My Profile, API Tokens, "Create Token". Give it only these permissions: Account / Workers Scripts: Edit, Account / D1: Edit, Account / Workers R2 Storage: Edit. Limit it to your one account.
 
+### Checking a change before it goes live
+
+Every pull request to `main` runs the tests first; GitHub shows a green tick or a red cross on the pull request before you merge. Nothing goes live until you merge.
+
+Once the staging copy below is set up, each pull request is also published to the staging copy (its own database and files, never the live ones), so you can click through the change first. The address is shown in the run's summary on the **Actions** tab.
+
 ### Staging copy (optional)
 
 ```bash
