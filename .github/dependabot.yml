@@ -1,0 +1,30 @@
+# Automatic dependency updates. Dependabot opens pull requests; each one runs the full test
+# suite (see .github/workflows/deploy.yml) and nothing goes live until someone merges it.
+# Security fixes arrive as soon as GitHub knows about them (turn on "Dependabot security
+# updates" in the repository's Settings). Routine updates are batched to keep the noise down.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Guyana
+    open-pull-requests-limit: 5
+    groups:
+      # Small, low-risk updates arrive together as one pull request a week.
+      minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

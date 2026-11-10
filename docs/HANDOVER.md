@@ -21,7 +21,7 @@ For whoever looks after GEMA Fleet next.
 | Check that the nightly backup ran | Weekly | Users screen, Backups panel (system administrator) |
 | Download a backup and keep it somewhere else | Monthly | Same panel, Download |
 | Review sample data | Once | Setup screen, **Remove sample data**, if any was loaded |
-| Update software packages | A few times a year | `npm update`, then `npm test` and `npm run build` |
+| Review automatic update pull requests | Weekly (Mondays) | GitHub, **Pull requests**: Dependabot opens them; merge when the checks are green. Security fixes can arrive any day |
 
 Every change a person makes is recorded in the `audit_log` table (who, what, before and after). Administrators can read it from `GET /api/admin/audit` while logged in.
 

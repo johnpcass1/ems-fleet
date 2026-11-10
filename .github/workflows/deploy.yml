@@ -74,7 +74,8 @@ jobs:
   # file storage, so it can be tried out before it is merged. Production is never touched here.
   preview:
     needs: test
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot's pull requests don't get the Cloudflare secrets, so they are tested but not previewed.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     concurrency:
       group: preview-staging
