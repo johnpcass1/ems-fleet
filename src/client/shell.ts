@@ -11,6 +11,7 @@ import './views-a';
 import './views-b';
 import './views-c';
 import './users-ui';
+import './roles-ui';
 
 let queued = false;
 export function scheduleRenderSoon() { if (queued) return; queued = true; setTimeout(() => { queued = false; render(); }, 16); }

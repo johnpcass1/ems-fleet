@@ -58,7 +58,7 @@ describe('per-person permissions', () => {
     expect((await api('POST', '/api/issues', { cookie: crew, body })).status).toBe(200);
     const s0 = await syncAll(crew);
     expect(s0.me.perms.report).toBe(true);
-    expect((await perms(fm, crewId, { report: false })).status).toBe(200);
+    expect((await perms(admin, crewId, { report: false })).status).toBe(200);
     expect((await api('POST', '/api/issues', { cookie: crew, body })).status).toBe(403);
     const s1 = await syncAll(crew, s0.cursor);
     expect(s1.me.perms.report).toBe(false); // even though nothing else changed
@@ -67,7 +67,7 @@ describe('per-person permissions', () => {
   });
   it('granting `move` works only within the person\'s bases', async () => {
     expect((await api('POST', '/api/moves', { cookie: hqCrew, body: { vehicleIds: ['v-01'], toBaseId: 'b-diamond', reason: 'x' } })).status).toBe(403);
-    expect((await perms(fm, hqCrewId, { move: true })).status).toBe(200);
+    expect((await perms(admin, hqCrewId, { move: true })).status).toBe(200);
     const vs = (await syncAll(fm)).data.vehicles;
     const mine = vs.find((v: any) => v.baseId === 'b-hq'), other = vs.find((v: any) => v.baseId !== 'b-hq');
     const to = 'b-diamond' === mine.baseId ? 'b-hq' : 'b-diamond';
@@ -75,24 +75,24 @@ describe('per-person permissions', () => {
     expect((await api('POST', '/api/moves', { cookie: hqCrew, body: { vehicleIds: [mine.id], toBaseId: to, reason: 'x' } })).status).toBe(200);
   });
   it('only stores differences from the role default, and a reset clears them', async () => {
-    expect((await perms(fm, crewId, { report: true, move: false, upload: false, status: true })).status).toBe(200);
+    expect((await perms(admin, crewId, { report: true, move: false, upload: false, status: true })).status).toBe(200);
     expect(JSON.parse((await row('SELECT perm_overrides o FROM users WHERE id = ?', crewId)).o)).toEqual({ upload: false, status: true });
-    expect((await perms(fm, crewId, {})).status).toBe(200);
+    expect((await perms(admin, crewId, {})).status).toBe(200);
     expect((await row('SELECT perm_overrides o FROM users WHERE id = ?', crewId)).o).toBe('{}');
   });
   it('is audited with before and after', async () => {
-    await perms(fm, crewId, { upload: false });
-    await perms(fm, crewId, { upload: false, move: true });
+    await perms(admin, crewId, { upload: false });
+    await perms(admin, crewId, { upload: false, move: true });
     const log = await rows("SELECT user_email, entity_id, before_json, after_json FROM audit_log WHERE action = 'user.permissions' ORDER BY id");
     expect(log).toHaveLength(2);
-    expect(log[1]).toMatchObject({ user_email: 'fm@gema.test', entity_id: crewId });
+    expect(log[1]).toMatchObject({ user_email: 'admin@gema.test', entity_id: crewId });
     expect(JSON.parse(log[1].before_json).overrides).toEqual({ upload: false });
     expect(JSON.parse(log[1].after_json).overrides).toEqual({ upload: false, move: true });
   });
   it('rejects unknown keys and non-boolean values', async () => {
-    expect((await perms(fm, crewId, { fly: true })).status).toBe(400);
-    expect((await api('POST', `/api/users/${crewId}/permissions`, { cookie: fm, body: { overrides: { move: 'yes' } } })).status).toBe(400);
-    expect((await api('POST', `/api/users/${crewId}/permissions`, { cookie: fm, body: {} })).status).toBe(400);
+    expect((await perms(admin, crewId, { fly: true })).status).toBe(400);
+    expect((await api('POST', `/api/users/${crewId}/permissions`, { cookie: admin, body: { overrides: { move: 'yes' } } })).status).toBe(400);
+    expect((await api('POST', `/api/users/${crewId}/permissions`, { cookie: admin, body: {} })).status).toBe(400);
   });
   it('people without the users permission cannot use it; an override can give or take it away', async () => {
     expect((await perms(crew, hqCrewId, { upload: false })).status).toBe(403);
@@ -103,13 +103,12 @@ describe('per-person permissions', () => {
 });
 
 describe('who can edit whose permissions and roles', () => {
-  it('a fleet manager cannot edit fleet managers, system admins or the super user, and nobody edits themselves', async () => {
+  it('a fleet manager cannot edit anyone\'s permissions at all (403), and cannot edit fleet managers, system admins or themselves through the role route either', async () => {
     const fm2 = (await as('fleet_manager', { email: 'fm2@gema.test' })).user.id;
-    expect((await perms(fm, fm2, { upload: false })).status).toBe(403);
-    expect((await perms(fm, adminId, { upload: false })).status).toBe(403);
-    expect((await perms(fm, suId, { upload: false })).status).toBe(403);
-    expect((await perms(fm, fmId, { upload: false })).status).toBe(403);
+    for (const id of [crewId, hqCrewId, fm2, adminId, suId, fmId]) expect((await perms(fm, id, { upload: false })).status, id).toBe(403);
+    expect((await perms(admin, fm2, { upload: false })).status).toBe(200); // the system admin can
     expect((await perms(admin, adminId, { upload: false })).status).toBe(403);
+    expect((await perms(admin, suId, { upload: false })).status).toBe(403);
     expect((await api('PUT', `/api/users/${fmId}`, { cookie: fm, body: { name: 'Me', role: 'crew' } })).status).toBe(400); // own role
     expect((await api('PUT', `/api/users/${fm2}`, { cookie: fm, body: { name: 'x', role: 'crew' } })).status).toBe(403);
   });
@@ -120,27 +119,34 @@ describe('who can edit whose permissions and roles', () => {
     expect((await perms(su, admin2, { cancelWO: false })).status).toBe(200);
     expect((await perms(su, fmId, { cancelWO: false })).status).toBe(200);
   });
-  it('an editor can only turn ON what they have themselves, and only the super user can grant users, setup or backups', async () => {
-    // a fleet manager who lost `approve` cannot hand it to a crew member
-    await perms(su, fmId, { approve: false });
-    expect((await perms(fm, crewId, { approve: true })).status).toBe(403);
-    expect((await perms(fm, crewId, { createWO: true })).status).toBe(200);
-    // admin keys: fleet manager and system admin cannot grant them, super user can
-    for (const k of ['users', 'setup', 'backups']) {
+  it('an editor can only turn ON what they have themselves; only the super user grants users or setup; nobody grants backups', async () => {
+    // a system admin who lost `approve` cannot hand it to a crew member
+    await perms(su, adminId, { approve: false });
+    expect((await perms(admin, crewId, { approve: true })).status).toBe(403);
+    expect((await perms(admin, crewId, { createWO: true })).status).toBe(200);
+    for (const k of ['users', 'setup']) {
       expect((await perms(fm, crewId, { [k]: true })).status, 'fm ' + k).toBe(403);
       expect((await perms(admin, hqCrewId, { [k]: true })).status, 'admin ' + k).toBe(403);
     }
-    expect((await perms(su, hqCrewId, { users: true, setup: true, backups: true })).status).toBe(200);
+    // backups can never be granted: rejected for everyone including the super user
+    for (const c of [fm, admin, su]) expect((await perms(c, hqCrewId, { backups: true })).status, 'backups').toBeGreaterThanOrEqual(400);
+    expect((await perms(su, hqCrewId, { backups: true })).status).toBe(400);
+    expect((await perms(su, hqCrewId, { users: true, setup: true })).status).toBe(200);
     expect((await api('GET', '/api/users', { cookie: hqCrew })).status).toBe(200);
-    expect((await api('GET', '/api/admin/backups', { cookie: hqCrew })).status).toBe(200);
-    // untouched values do not count as grants: a fleet manager can save a form where someone else's admin override is already on
-    expect((await perms(fm, hqCrewId, { users: true, setup: true, backups: true, upload: false })).status).toBe(200);
+    expect((await api('GET', '/api/admin/backups', { cookie: hqCrew })).status).toBe(403);
+    expect((await api('GET', '/api/auth/me', { cookie: hqCrew })).json.user.perms.backups).toBe(false);
+    // a stored `backups` override (from before this rule) is ignored
+    await E.DB.prepare("UPDATE users SET perm_overrides = '{\"backups\":true,\"users\":true}' WHERE id = ?").bind(hqCrewId).run();
+    expect((await api('GET', '/api/admin/backups', { cookie: hqCrew })).status).toBe(403);
+    // untouched values do not count as grants: a system admin can save a form where someone else's admin override is already on
+    await perms(su, hqCrewId, { users: true, setup: true });
+    expect((await perms(admin, hqCrewId, { users: true, setup: true, upload: false })).status).toBe(200);
     expect(JSON.parse((await row('SELECT perm_overrides o FROM users WHERE id = ?', hqCrewId)).o)).toMatchObject({ users: true, upload: false });
   });
   it('turning things off is always allowed to a manager of that person', async () => {
     await perms(su, crewId, { users: true });
-    expect((await perms(fm, crewId, { users: true, report: false })).status).toBe(200); // users stays as it was, report goes off
-    expect((await perms(fm, crewId, { users: false })).status).toBe(200);
+    expect((await perms(admin, crewId, { users: true, report: false })).status).toBe(200); // users stays as it was, report goes off
+    expect((await perms(admin, crewId, { users: false })).status).toBe(200);
   });
   it('role assignment follows the same hierarchy for create and edit', async () => {
     const mk = (c: string, role: string, email: string) => api('POST', '/api/users', { cookie: c, body: { email, name: 'N', role, password: 'long-enough-pass-1' } });
@@ -157,7 +163,7 @@ describe('who can edit whose permissions and roles', () => {
     expect((await api('PUT', `/api/users/${crewId}`, { cookie: admin, body: { name: 'x', role: 'fleet_manager' } })).status).toBe(200);
   });
   it('a role change keeps the overrides', async () => {
-    await perms(fm, crewId, { upload: false });
+    await perms(admin, crewId, { upload: false });
     await api('PUT', `/api/users/${crewId}`, { cookie: fm, body: { name: 'x', role: 'viewer' } });
     expect(JSON.parse((await row('SELECT perm_overrides o FROM users WHERE id = ?', crewId)).o)).toEqual({ upload: false });
   });

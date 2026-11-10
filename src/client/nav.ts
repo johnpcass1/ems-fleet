@@ -3,11 +3,12 @@ import { ui, saveUi, D, S, hasSample } from './state';
 import { closeDrawer } from './dom';
 import { $, esc } from './util';
 import { can } from './state';
+import { editableRoles } from '../shared/perm';
 
-export const ALL_ROUTES = ['board', 'dispatch', 'vehicles', 'vehicle', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'setup', 'users'];
-export const ROUTE_LABELS: Record<string, string> = { board: 'Status board', dispatch: 'Dispatch', vehicles: 'Vehicles', pm: 'Preventive maintenance', issues: 'Problems', 'work-orders': 'Work orders', parts: 'Parts & mechanics', reports: 'Reports', setup: 'Setup', users: 'Users' };
+export const ALL_ROUTES = ['board', 'dispatch', 'vehicles', 'vehicle', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'setup', 'users', 'roles'];
+export const ROUTE_LABELS: Record<string, string> = { board: 'Status board', dispatch: 'Dispatch', vehicles: 'Vehicles', pm: 'Preventive maintenance', issues: 'Problems', 'work-orders': 'Work orders', parts: 'Parts & mechanics', reports: 'Reports', setup: 'Setup', users: 'Users', roles: 'Roles & permissions' };
 /** Sidebar groups, in order. The vehicle screen is reached from the lists, so it is not in the sidebar. */
-export const NAV_GROUPS: [string, string[]][] = [['Operations', ['board', 'dispatch', 'issues', 'work-orders', 'pm']], ['Fleet', ['vehicles', 'parts']], ['Admin', ['reports', 'setup', 'users']]];
+export const NAV_GROUPS: [string, string[]][] = [['Operations', ['board', 'dispatch', 'issues', 'work-orders', 'pm']], ['Fleet', ['vehicles', 'parts']], ['Admin', ['reports', 'setup', 'users', 'roles']]];
 export const groupOf = (r: string) => NAV_GROUPS.find(([, rs]) => rs.includes(r))?.[0] || '';
 
 /** Which screens a person may open. The dispatcher sees Dispatch only. */
@@ -15,8 +16,9 @@ export function allowedRoutes(): string[] {
   const role = S.me?.role;
   if (!role) return [];
   if (role === 'dispatcher') return ['dispatch'];
-  const r = ALL_ROUTES.filter((x) => x !== 'users' && (x !== 'reports' || can('viewReports')));
+  const r = ALL_ROUTES.filter((x) => x !== 'users' && x !== 'roles' && (x !== 'reports' || can('viewReports')));
   if (can('users')) r.push('users');
+  if (S.me && editableRoles({ role: S.me.role, isSuper: !!S.me.isSuperuser }).length) r.push('roles');
   return r;
 }
 export function route(): string {

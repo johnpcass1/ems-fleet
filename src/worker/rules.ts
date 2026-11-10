@@ -7,12 +7,12 @@ import type { Env } from './env';
 import { Tx, SEQ, all, first, b2i } from './db';
 import { bad, forbidden, notFound, conflict, uid, zId, zDate, zText, parse } from './http';
 import { loadDoc } from './docs';
-import { canOnVehicle, canWorkWO, can, type Actor } from '../shared/perm';
+import { canOnVehicle, canWorkWO, can, cleanRolePerms, type Actor, type RolePerms } from '../shared/perm';
 import { checkReading, gyDate, pmTaskStatus, woTotal, needsApproval, weightedAvgCost } from '../shared/pure';
 import { HOLD, REPAIR_CODES, WO_TYPES, PRIO, STATUS, isAvail, isOos, LINE_KINDS } from '../shared/constants';
 
 /* ---------- settings ---------- */
-export const DEFAULT_SETTINGS = { approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false } };
+export const DEFAULT_SETTINGS = { approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false }, rolePerms: {} as RolePerms };
 export async function getSettings(db: D1Database) {
   const r = await first<any>(db, "SELECT data FROM settings WHERE id = 'main'");
   let d = {};
@@ -20,6 +20,8 @@ export async function getSettings(db: D1Database) {
   const s = { ...DEFAULT_SETTINGS, ...d } as typeof DEFAULT_SETTINGS;
   // Site-wide features live under `features` and are changed only by the super user. A missing or odd value always means OFF.
   s.features = { uploads: (s.features as any)?.uploads === true };
+  // Role-level permission changes live under `rolePerms` and are written only by src/worker/roles.ts.
+  s.rolePerms = cleanRolePerms((s as any).rolePerms);
   return s;
 }
 const todayGY = () => gyDate(Date.now());
@@ -615,7 +617,7 @@ export async function saveSettings(env: Env, actor: Actor, body: unknown) {
   return { ok: true };
 }
 
-/** Site-wide switches. Super user only (set in code: SUPERUSER_EMAILS). The ordinary settings save above never touches `features`. */
+/** Site-wide switches. Super user only (set in code: SUPERUSER_EMAILS). The ordinary settings save above never touches `features` (or `rolePerms`, see roles.ts). */
 const featuresIn = z.object({ uploads: z.boolean() });
 export async function saveFeatures(env: Env, actor: Actor, body: unknown) {
   if (!actor.isSuper) throw forbidden('Only the super user can change features.');

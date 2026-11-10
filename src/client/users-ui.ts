@@ -1,6 +1,6 @@
-/** Users screen (fleet manager and system administrator) and the Backups panel (system administrator). */
+/** Users screen (fleet manager and system administrator) and the Backups panel (super user only). */
 import { ROLES, ROLE_LIST } from '../shared/constants';
-import { PERM_GROUPS, SUPER_ONLY_KEYS, canManageUser, can as canActor, hasPerm, manageableRoles } from '../shared/perm';
+import { PERM_GROUPS, SUPER_ONLY_KEYS, canManageUser, can as canActor, manageableRoles, roleHas } from '../shared/perm';
 import { D, LST, S, can, basesSorted, featureUploads } from './state';
 import { $, $$, esc, fmtDT, fmtDate, toast, field, inp, selHtml, val, run } from './util';
 import { VIEWS } from './registry';
@@ -35,6 +35,9 @@ export const resetUsersCache = () => { usersCache = null; backupsCache = null; }
 /** Roles this person may hand out (the super user: all; others: only roles below their own). Editing yourself keeps your own role. */
 const roleChoices = (current?: string) => ROLE_LIST.filter((r) => (S.me ? manageableRoles(S.me).includes(r) : false) || r === current);
 const mayManage = (u: any) => !!S.me && canManageUser({ id: S.me.id, role: S.me.role, isSuper: !!S.me.isSuperuser }, { id: u.id, role: u.role, isSuper: !!u.isSuperuser });
+/** Per-person permissions: the super user and system administrators only (fleet managers can add people and set roles, not permissions). */
+const mayEditPerms = () => !!S.me && (!!S.me.isSuperuser || S.me.role === 'system_admin');
+const roleChanges = (role: string): Record<string, boolean> => ((D.settings.main || {}).rolePerms || {})[role] || {};
 const scoped = (r: string) => r === 'base_supervisor' || r === 'crew';
 
 VIEWS.users = function () {
@@ -50,7 +53,7 @@ VIEWS.users = function () {
     <td>${scoped(u.role) ? esc((u.baseIds || []).map(bn).join(', ') || 'No base') : u.role === 'mechanic' ? esc(D.mechanics[u.mechanicId]?.name || 'No mechanic linked') : 'All'}</td>
     <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.invited ? '<span class="badge warn">Invited — not yet set up</span>' : u.mustChangePassword ? '<span class="badge warn">Password not set yet</span>' : '<span class="badge ok">Active</span>') : '<span class="badge off">Deactivated</span>'}</td>
     <td class="c-act"><div class="row tight">${!mayManage(u) && u.id !== S.me.id ? '' : `<button class="btn sm ghost" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
-      ${mayManage(u) ? `<button class="btn sm ghost" data-act="perm-user" data-id="${esc(u.id)}" id="pm-${esc(u.id)}">Permissions</button>` : ''}
+      ${mayManage(u) && mayEditPerms() ? `<button class="btn sm ghost" data-act="perm-user" data-id="${esc(u.id)}" id="pm-${esc(u.id)}">Permissions</button>` : ''}
       ${u.id === S.me.id ? '' : `<button class="btn sm ghost" data-act="setpw-user" data-id="${esc(u.id)}" id="sp-${esc(u.id)}">Set password</button>`}
       ${S.emailEnabled && u.active ? `<button class="btn sm ghost" data-act="${u.invited ? 'invite-user' : 'reset-user'}" data-id="${esc(u.id)}" id="${u.invited ? 'ri' : 'ru'}-${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}
       ${u.id === S.me.id ? '' : `<button class="btn sm ghost ${u.active ? 'danger' : ''}" data-act="${u.active ? 'deactivate-user' : 'reactivate-user'}" data-id="${esc(u.id)}" id="du-${esc(u.id)}">${u.active ? 'Deactivate' : 'Reactivate'}</button>`}`}</div></td></tr>`).join('')}
@@ -90,26 +93,32 @@ function userFormHtml(u: any) {
 /** The Permissions drawer: every permission as a switch showing what this person can do now. */
 function permsFormHtml(u: any) {
   const ov = u.permOverrides || {};
+  const rc = roleChanges(u.role);
   const me = S.me as any;
-  const eff = (k: string) => (typeof ov[k] === 'boolean' ? ov[k] : hasPerm(u.role, k));
+  const roleName = ROLES[u.role as keyof typeof ROLES] || u.role;
+  /** The role's value for this item: its built-in default with any change made on Roles & permissions. */
+  const roleVal = (k: string) => roleHas(u.role, k, rc);
+  const srcText = (personal: boolean, k: string) => personal ? 'Personal change' : typeof rc[k] === 'boolean' && rc[k] !== roleHas(u.role, k) ? `Role change: all ${roleName.toLowerCase()} people` : 'Role default';
   const group = (g: { title: string; items: [string, string][] }) => `<fieldset class="f permgrp"><legend class="l">${esc(g.title)}</legend>${g.items.map(([k, label]) => {
-    const on = eff(k), def = hasPerm(u.role, k);
+    const def = roleVal(k), on = typeof ov[k] === 'boolean' ? ov[k] : def;
     const blocked = !on && (SUPER_ONLY_KEYS.includes(k) ? !me.isSuperuser : !canActor(me, k));
     const why = blocked ? (SUPER_ONLY_KEYS.includes(k) ? 'Only the super user can grant this.' : 'You can only grant permissions you have yourself.') : k === 'upload' && !featureUploads() ? 'Uploads are also off for everyone until the super user turns them on.' : '';
-    return `<div class="permrow" id="prow-${k}"><label class="chk" for="perm-${k}"><input type="checkbox" id="perm-${k}" data-perm="${k}" data-def="${def ? 1 : 0}" ${on ? 'checked' : ''} ${blocked ? 'disabled' : ''} ${why ? `aria-describedby="why-${k}"` : ''}>
-      <span>${esc(label)} <span class="badge warn" id="chg-${k}" ${on === def ? 'hidden' : ''}>Changed</span>${why ? `<br><span class="hint" id="why-${k}">${esc(why)}</span>` : ''}</span></label>
+    const roleChg = typeof rc[k] === 'boolean' && rc[k] !== roleHas(u.role, k) ? 1 : 0;
+    return `<div class="permrow" id="prow-${k}"><label class="chk" for="perm-${k}"><input type="checkbox" id="perm-${k}" data-perm="${k}" data-def="${def ? 1 : 0}" data-rolechg="${roleChg}" ${on ? 'checked' : ''} ${blocked ? 'disabled' : ''} ${why ? `aria-describedby="why-${k}"` : ''}>
+      <span>${esc(label)} <span class="badge warn" id="chg-${k}" ${on === def ? 'hidden' : ''}>Changed</span><br><span class="hint src" id="src-${k}">${esc(srcText(on !== def, k))}</span>${why ? `<br><span class="hint" id="why-${k}">${esc(why)}</span>` : ''}</span></label>
       ${blocked ? '' : `<button type="button" class="btn link sm" data-act="perm-reset" data-key="${k}" id="rst-${k}" ${on === def ? 'hidden' : ''}>Reset to role default</button>`}</div>`;
   }).join('')}</fieldset>`;
-  return `<form data-form="perms" data-id="${esc(u.id)}" id="permsForm" novalidate>
-    <p style="margin-top:0"><b>${esc(u.name)}</b> <span class="muted">· ${esc(ROLES[u.role] || u.role)}</span></p>
-    <p class="small muted">Switches show what this person can do now. “Changed” marks anything different from what their role allows. If you change their role later, these changes stay and are compared with the new role’s defaults. Where a unit’s base matters, the person’s bases still apply.</p>
+  return `<form data-form="perms" data-id="${esc(u.id)}" id="permsForm" data-role-name="${esc(roleName.toLowerCase())}" novalidate>
+    <p style="margin-top:0"><b>${esc(u.name)}</b> <span class="muted">· ${esc(roleName)}</span></p>
+    <p class="small muted">Switches show what this person can do now. Under each one: <b>Role default</b> (the built-in default for the role), <b>Role change</b> (the role was changed on Roles &amp; permissions, which applies to everyone in it) or <b>Personal change</b> (set only for this person; marked “Changed”). If you change their role later, personal changes stay. Where a unit’s base matters, the person’s bases still apply.</p>
     ${PERM_GROUPS.map(group).join('')}
     <div class="dfoot"><button class="btn ghost" type="button" data-act="perm-reset-all" id="perm-resetall">Reset all to role default</button><button class="btn" type="button" data-act="close-drawer" id="perm-cancel">Cancel</button><button class="btn primary" type="submit" id="perm-save">Save permissions</button></div></form>`;
 }
 export function syncPermsForm() {
   document.querySelectorAll<HTMLInputElement>('#permsForm input[data-perm]').forEach((c) => {
     const k = c.dataset.perm, changed = c.checked !== (c.dataset.def === '1');
-    const b = document.getElementById('chg-' + k), r = document.getElementById('rst-' + k);
+    const b = document.getElementById('chg-' + k), r = document.getElementById('rst-' + k), s = document.getElementById('src-' + k);
+    if (s) s.textContent = changed ? 'Personal change' : c.dataset.rolechg === '1' ? `Role change: all ${document.getElementById('permsForm')?.dataset.roleName || ''} people` : 'Role default';
     if (b) b.hidden = !changed;
     if (r) r.hidden = !changed;
   });
@@ -169,7 +178,7 @@ export const userForms: Record<string, any> = {
 export const userActs: Record<string, any> = {
   'add-user': () => { showDrawer('Add user', userFormHtml(null)); syncUserForm(); },
   'edit-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u) { showDrawer('Edit user', userFormHtml(u)); syncUserForm(); } },
-  'perm-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u && mayManage(u)) showDrawer(`Permissions for ${u.name}`, permsFormHtml(u)); },
+  'perm-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u && mayManage(u) && mayEditPerms()) showDrawer(`Permissions for ${u.name}`, permsFormHtml(u)); },
   'perm-reset': (el: any) => { const c = document.getElementById('perm-' + el.dataset.key) as HTMLInputElement | null; if (c && !c.disabled) { c.checked = c.dataset.def === '1'; syncPermsForm(); } },
   'perm-reset-all': () => { document.querySelectorAll<HTMLInputElement>('#permsForm input[data-perm]').forEach((c) => { if (!c.disabled) c.checked = c.dataset.def === '1'; }); syncPermsForm(); },
   'setpw-user': (el: any) => { const u = (usersCache || []).find((x) => x.id === el.dataset.id); if (u) showDrawer(`Set password for ${u.name}`, setPwFormHtml(u)); },
@@ -216,7 +225,7 @@ export function syncUserForm() {
   bw.hidden = !scoped(r);
   mw.hidden = r !== 'mechanic';
   const help: Record<string, string> = {
-    system_admin: 'Everything, including users and backups.', fleet_manager: 'Manages the whole fleet, setup, approvals and users.',
+    system_admin: 'Everything except backups, which only the super user can use.', fleet_manager: 'Manages the whole fleet, setup, approvals and users.',
     base_supervisor: 'Manages the units of the bases ticked above.', mechanic: 'Works on the work orders assigned to them.',
     crew: 'Reports problems and logs hours for the bases ticked above.', dispatcher: 'Sees the Dispatch screen only.', viewer: 'Can look but not change anything.',
   };

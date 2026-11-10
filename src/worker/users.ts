@@ -7,7 +7,8 @@ import { emailEnabled, getMailer, inviteMessage, resetMessage, setPasswordLink }
 import { newToken, retireUnused } from './tokens';
 import { HttpError } from './http';
 import { ROLE_LIST } from '../shared/constants';
-import { can, canManageUser, cleanOverrides, effectivePerms, hasPerm, manageableRoles, PERM_KEYS, SUPER_ONLY_KEYS, type Actor } from '../shared/perm';
+import { can, canManageUser, cleanOverrides, effectivePerms, manageableRoles, NEVER_GRANTABLE, PERM_KEYS, roleHas, SUPER_ONLY_KEYS, type Actor } from '../shared/perm';
+import { loadRolePerms } from './auth';
 import { isSuperuserEmail } from './env';
 
 const publicUser = (r: any, env?: Env) => ({
@@ -198,22 +199,29 @@ export async function setActive(env: Env, actor: Actor, id: string, active: bool
 
 /**
  * Replace one person's permission changes. The body lists only the keys to change from the role default; anything equal to the default is dropped.
- * Rules: you cannot edit yourself; only people below you (the super user: anyone); you can only turn ON what you effectively have yourself;
- * users, setup and backups can only be granted by the super user. Turning things off is always allowed.
+ * "Role default" here means the role's built-in default with any change made on the Roles & permissions screen.
+ * Rules: only the super user and system administrators may do this (a system administrator: fleet managers and below; fleet managers may not);
+ * you cannot edit yourself; you can only turn ON what you effectively have yourself; users and setup can only be granted by the super user;
+ * backups can never be granted. Turning things off is always allowed.
  */
 const permsIn = z.object({ overrides: z.record(z.string(), z.boolean()) });
 export async function setPermissions(env: Env, actor: Actor, id: string, body: unknown) {
   requireUsersPerm(actor);
+  if (!actor.isSuper && actor.role !== 'system_admin') throw forbidden('Only the super user and system administrators can change a person\'s permissions.');
   const i = parse(permsIn, body);
   const u = await first<any>(env.DB, 'SELECT * FROM users WHERE id = ?', id);
   if (!u) throw notFound();
   if (u.id === actor.id) throw forbidden('You cannot change your own permissions.');
   checkTarget(env, actor, u);
-  for (const k of Object.keys(i.overrides)) if (!PERM_KEYS.includes(k)) throw bad(`Unknown permission: ${k}.`);
+  for (const k of Object.keys(i.overrides)) {
+    if (NEVER_GRANTABLE.includes(k)) throw bad('Backups are for the super user only and cannot be given to a person.');
+    if (!PERM_KEYS.includes(k)) throw bad(`Unknown permission: ${k}.`);
+  }
   const before = parseOverrides(u.perm_overrides);
+  const ro = (await loadRolePerms(env.DB))[u.role] ?? {};
   const next: Record<string, boolean> = {};
-  for (const [k, v] of Object.entries(i.overrides)) if (v !== hasPerm(u.role, k)) next[k] = v;
-  const was = effectivePerms({ role: u.role, permOverrides: before }), will = effectivePerms({ role: u.role, permOverrides: next });
+  for (const [k, v] of Object.entries(i.overrides)) if (v !== roleHas(u.role, k, ro)) next[k] = v;
+  const was = effectivePerms({ role: u.role, permOverrides: before, roleOverrides: ro }), will = effectivePerms({ role: u.role, permOverrides: next, roleOverrides: ro });
   for (const k of PERM_KEYS) {
     if (will[k] && !was[k]) {
       if (SUPER_ONLY_KEYS.includes(k) && !actor.isSuper) throw forbidden('Only the super user can grant that permission.');

@@ -2,7 +2,7 @@
 import {
   Menu, LayoutDashboard, Radio, TriangleAlert, ClipboardList, CalendarClock, Truck, Package, ChartColumn, Settings, Users,
   Maximize, Minimize, ArrowRightLeft, Ellipsis, Search, Paperclip, X, ChevronDown, ChevronRight, ChevronLeft, Plus, FileText, Image,
-  PanelLeftClose, PanelLeftOpen, LogOut, KeyRound, Inbox, Wrench, Pencil, Download, Gauge, CircleAlert, Clock, Check,
+  PanelLeftClose, PanelLeftOpen, LogOut, KeyRound, Inbox, Wrench, Pencil, Download, Gauge, CircleAlert, Clock, Check, ShieldCheck,
 } from 'lucide';
 
 type Node = [string, Record<string, string | number>][];
@@ -11,7 +11,7 @@ const ICONS: Record<string, Node> = {
   vehicles: Truck, parts: Package, reports: ChartColumn, setup: Settings, users: Users, maximize: Maximize, minimize: Minimize,
   move: ArrowRightLeft, more: Ellipsis, search: Search, clip: Paperclip, x: X, down: ChevronDown, right: ChevronRight, left: ChevronLeft, plus: Plus,
   file: FileText, image: Image, collapse: PanelLeftClose, expand: PanelLeftOpen, logout: LogOut, key: KeyRound, inbox: Inbox, edit: Pencil,
-  download: Download, gauge: Gauge, info: CircleAlert, clock: Clock, check: Check,
+  download: Download, gauge: Gauge, info: CircleAlert, clock: Clock, check: Check, roles: ShieldCheck,
 } as any;
 
 export function icon(name: string, cls = ''): string {
