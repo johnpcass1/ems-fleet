@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { api, as, seedDemo, syncAll, byId, row } from './helpers';
+import { api, as, seedDemo, syncAll, byId, row, setUploads } from './helpers';
 
 let fm: string;
 beforeEach(async () => {
@@ -104,6 +104,7 @@ describe('mechanic scoping in sync and downloads', () => {
   it('a mechanic cannot download files on another mechanic\'s work order', async () => {
     const own = (await as('mechanic', { mechanicId: 'm-1' })).cookie;
     const other = (await as('mechanic', { mechanicId: 'm-2' })).cookie;
+    await setUploads(fm, true);
     const fd = new FormData();
     fd.set('entity_type', 'work_order'); fd.set('entity_id', 'wo-14');
     fd.set('file', new File([new TextEncoder().encode('%PDF-1.4\n%%EOF')], 'q.pdf', { type: 'application/pdf' }));

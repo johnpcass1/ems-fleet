@@ -1,7 +1,7 @@
 /** Forms, button actions and global event wiring. */
 import { RANK, checkReading, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
-import { D, LST, ui, S, can, canWo, settings, vehiclesSorted, basesSorted, baseName, unitOf, readingsOf, wosOf, vsum, hasSample, coverageAfterRemoval, coverageEffect, saveUi } from './state';
+import { D, LST, ui, S, can, canWo, settings, uploadsOn, vehiclesSorted, basesSorted, baseName, unitOf, readingsOf, wosOf, vsum, hasSample, coverageAfterRemoval, coverageEffect, saveUi } from './state';
 import { $, $$, esc, num, gyd, todayStr, toast, selHtml, field, inp, nv, val, run } from './util';
 import { statusPill, statusSw, baseOpts, loanChip } from './bits';
 import { layoutActs, closeMenus, escLayout, navRoot } from './layout';
@@ -14,8 +14,8 @@ import { CSV } from './views-c';
 import { openDrawer } from './drawers';
 import { render } from './shell';
 import * as A from './actions';
-import { setVehicleStatus, recordReading, acceptReading, submitIssue, dismissIssue, createWorkOrder, addLine, removeLine, patchWo, woAction, moveUnits, removeSample, saveVehicle, savePart, receivePart, saveMech, saveBase, saveProgram, saveSettings } from './actions';
-import { userForms, userActs } from './users-ui';
+import { setVehicleStatus, recordReading, acceptReading, submitIssue, dismissIssue, createWorkOrder, addLine, removeLine, patchWo, woAction, moveUnits, removeSample, saveVehicle, savePart, receivePart, saveMech, saveBase, saveProgram, saveSettings, saveFeatures } from './actions';
+import { userForms, userActs, syncPermsForm } from './users-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
@@ -209,6 +209,12 @@ FORMS.settings=async f=>{
   if(await run(()=>saveSettings(o)))toast('Settings saved');
 };
 
+FORMS.features=async f=>{
+  if(!(S.me&&S.me.isSuperuser))return;
+  const on=!!(document.getElementById('ft-uploads') as HTMLInputElement|null)?.checked;
+  if(await run(()=>saveFeatures({uploads:on})))toast(on?'Photo and PDF uploads turned on':'Photo and PDF uploads turned off');
+};
+
 /* ---- move units ---- */
 export function openMoveDrawer(pre){
   const vs=vehiclesSorted().filter(v=>v.status!=='decommissioned');
@@ -348,10 +354,11 @@ document.addEventListener('keydown',(e:any)=>{
   }
 });
 document.addEventListener('change',(e:any)=>{
-  const el=e.target;if(!el||el.type!=='file')return;
+  const el=e.target;if(el&&el.dataset&&el.dataset.perm!==undefined){syncPermsForm();return;}
+  if(!el||el.type!=='file')return;
   const files=[...(el.files||[])];
-  if(el.id==='ri-photos'||el.id==='ri-pdf'){el.value='';addPending(files);return;}
-  if(el.dataset.att){const [coll,id]=el.dataset.att.split(':');el.value='';attachFiles(coll,id,files);}
+  if(el.id==='ri-photos'||el.id==='ri-pdf'){el.value='';if(uploadsOn())addPending(files);return;}
+  if(el.dataset.att){if(!uploadsOn()){el.value='';return;}const [coll,id]=el.dataset.att.split(':');el.value='';attachFiles(coll,id,files);}
 });
 document.addEventListener('click',(e:any)=>{if(e.target.closest&&e.target.closest('#nav a, .brand'))clearNavStack();},true);
 window.addEventListener('hashchange',()=>{

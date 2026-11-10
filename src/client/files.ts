@@ -87,7 +87,7 @@ export async function attachFiles(coll: string, docId: string, files: File[]) {
       toast(`${f0.name} attached`);
     } catch (e: any) {
       console.warn('attach failed', e);
-      toast(uploadMsg(e), true);
+      toast(uploadMsg(e), true); // includes "Photo and PDF uploads are turned off for now." when the server says uploads_disabled; the record itself is already saved
     }
     UP[key] = (UP[key] || []).filter((x) => x !== entry);
     onProgress();

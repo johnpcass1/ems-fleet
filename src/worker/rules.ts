@@ -7,17 +7,20 @@ import type { Env } from './env';
 import { Tx, SEQ, all, first, b2i } from './db';
 import { bad, forbidden, notFound, conflict, uid, zId, zDate, zText, parse } from './http';
 import { loadDoc } from './docs';
-import { canOnVehicle, canWorkWO, hasPerm, type Actor } from '../shared/perm';
+import { canOnVehicle, canWorkWO, can, type Actor } from '../shared/perm';
 import { checkReading, gyDate, pmTaskStatus, woTotal, needsApproval, weightedAvgCost } from '../shared/pure';
 import { HOLD, REPAIR_CODES, WO_TYPES, PRIO, STATUS, isAvail, isOos, LINE_KINDS } from '../shared/constants';
 
 /* ---------- settings ---------- */
-export const DEFAULT_SETTINGS = { approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000 };
+export const DEFAULT_SETTINGS = { approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false } };
 export async function getSettings(db: D1Database) {
   const r = await first<any>(db, "SELECT data FROM settings WHERE id = 'main'");
   let d = {};
   try { d = r ? JSON.parse(r.data) : {}; } catch { /* ignore */ }
-  return { ...DEFAULT_SETTINGS, ...d } as typeof DEFAULT_SETTINGS;
+  const s = { ...DEFAULT_SETTINGS, ...d } as typeof DEFAULT_SETTINGS;
+  // Site-wide features live under `features` and are changed only by the super user. A missing or odd value always means OFF.
+  s.features = { uploads: (s.features as any)?.uploads === true };
+  return s;
 }
 const todayGY = () => gyDate(Date.now());
 
@@ -295,7 +298,7 @@ export async function transitionWorkOrder(env: Env, actor: Actor, woId: string, 
 
   switch (i.action) {
     case 'approve':
-      if (!hasPerm(actor.role, 'approve')) throw forbidden();
+      if (!can(actor, 'approve')) throw forbidden();
       need('open');
       if (!wo.approvalNeeded) throw bad('This work order does not need approval.');
       setWo("status='approved', approved_by=?", actor.id);
@@ -392,7 +395,7 @@ export async function transitionWorkOrder(env: Env, actor: Actor, woId: string, 
 const moveIn = z.object({ vehicleIds: z.array(zId).min(1).max(200), toBaseId: zId, reason: zText(160).default(''), tempUntil: zDate.nullish() });
 export async function moveUnits(env: Env, actor: Actor, body: unknown) {
   const i = parse(moveIn, body);
-  if (!hasPerm(actor.role, 'move')) throw forbidden();
+  if (!can(actor, 'move')) throw forbidden();
   if (!(await first(env.DB, 'SELECT 1 FROM bases WHERE id = ?', i.toBaseId))) throw bad('That base does not exist.');
   if (i.tempUntil && i.tempUntil <= todayGY()) throw bad('Pick a date in the future for the temporary move.');
   const ids = [...new Set(i.vehicleIds)];
@@ -437,7 +440,7 @@ async function checkUnitFree(db: D1Database, unit: string, exceptId?: string) {
   if (r && r.id !== exceptId) throw conflict('Another unit already uses that name.', 'duplicate_unit');
 }
 export async function createVehicle(env: Env, actor: Actor, body: unknown) {
-  if (!hasPerm(actor.role, 'editVehicle')) throw forbidden();
+  if (!can(actor, 'editVehicle')) throw forbidden();
   const i = parse(vehicleCreateIn, body);
   await checkUnitFree(env.DB, i.unit);
   if (!(await first(env.DB, 'SELECT 1 FROM bases WHERE id = ?', i.baseId))) throw bad('Pick a base for the unit.');
@@ -460,7 +463,7 @@ export async function createVehicle(env: Env, actor: Actor, body: unknown) {
   return { ok: true, id };
 }
 export async function editVehicle(env: Env, actor: Actor, id: string, body: unknown) {
-  if (!hasPerm(actor.role, 'editVehicle')) throw forbidden();
+  if (!can(actor, 'editVehicle')) throw forbidden();
   const i = parse(vehicleEditIn, body);
   const v = await vehicleRow(env.DB, id);
   await checkUnitFree(env.DB, i.unit, id);
@@ -482,7 +485,7 @@ const partIn = z.object({
   onHand: z.number().finite().min(0).max(1e9).default(0), reorderPoint: z.number().finite().min(0).max(1e9).default(0), unitCost: z.number().finite().min(0).max(1e10).default(0),
 });
 export async function savePart(env: Env, actor: Actor, id: string | null, body: unknown) {
-  if (!hasPerm(actor.role, 'parts')) throw forbidden();
+  if (!can(actor, 'parts')) throw forbidden();
   const i = parse(partIn, body);
   const tx = new Tx(env.DB, actor);
   if (id) {
@@ -500,7 +503,7 @@ export async function savePart(env: Env, actor: Actor, id: string | null, body: 
 }
 const receiveIn = z.object({ qty: z.number().finite().gt(0).max(1e9), cost: z.number().finite().min(0).max(1e10) });
 export async function receivePart(env: Env, actor: Actor, id: string, body: unknown) {
-  if (!hasPerm(actor.role, 'parts')) throw forbidden();
+  if (!can(actor, 'parts')) throw forbidden();
   const i = parse(receiveIn, body);
   const p = await first<any>(env.DB, 'SELECT * FROM parts WHERE id = ?', id);
   if (!p) throw notFound();
@@ -514,7 +517,7 @@ export async function receivePart(env: Env, actor: Actor, id: string, body: unkn
 }
 const mechIn = z.object({ name: zText(120).min(1), shop: zText(160).default(''), phone: zText(40).default(''), region: zText(80).default('') });
 export async function saveMechanic(env: Env, actor: Actor, id: string | null, body: unknown) {
-  if (!hasPerm(actor.role, 'mechanics')) throw forbidden();
+  if (!can(actor, 'mechanics')) throw forbidden();
   const i = parse(mechIn, body);
   const tx = new Tx(env.DB, actor);
   if (id) {
@@ -532,7 +535,7 @@ export async function saveMechanic(env: Env, actor: Actor, id: string | null, bo
 }
 const baseIn = z.object({ name: zText(80).min(1), region: zText(80).default(''), minUnits: z.number().int().min(0).max(1000).default(0) });
 export async function saveBase(env: Env, actor: Actor, id: string | null, body: unknown) {
-  if (!hasPerm(actor.role, 'setup')) throw forbidden();
+  if (!can(actor, 'setup')) throw forbidden();
   const i = parse(baseIn, body);
   const tx = new Tx(env.DB, actor);
   if (id) {
@@ -554,7 +557,7 @@ const taskIn = z.object({
 });
 const programIn = z.object({ name: zText(120).min(1), appliesTo: zText(80).default(''), tasks: z.array(taskIn).min(1, 'Add at least one task.').max(200) });
 export async function saveProgram(env: Env, actor: Actor, id: string | null, body: unknown) {
-  if (!hasPerm(actor.role, 'setup')) throw forbidden();
+  if (!can(actor, 'setup')) throw forbidden();
   const i = parse(programIn, body);
   for (const t of i.tasks) if (!t.intervalHours && !t.intervalDays && !t.intervalKm) throw bad(`"${t.name}" needs an interval in hours, days or km.`);
   const tx = new Tx(env.DB, actor);
@@ -596,7 +599,7 @@ const settingsIn = z.object({
   comebackDays: z.number().finite().min(0).max(1e5),
 });
 export async function saveSettings(env: Env, actor: Actor, body: unknown) {
-  if (!hasPerm(actor.role, 'setup')) throw forbidden();
+  if (!can(actor, 'setup')) throw forbidden();
   const i = parse(settingsIn, body);
   const old = await first<any>(env.DB, "SELECT data, sample FROM settings WHERE id = 'main'");
   let merged: any = i;
@@ -612,13 +615,34 @@ export async function saveSettings(env: Env, actor: Actor, body: unknown) {
   return { ok: true };
 }
 
+/** Site-wide switches. Super user only (set in code: SUPERUSER_EMAILS). The ordinary settings save above never touches `features`. */
+const featuresIn = z.object({ uploads: z.boolean() });
+export async function saveFeatures(env: Env, actor: Actor, body: unknown) {
+  if (!actor.isSuper) throw forbidden('Only the super user can change features.');
+  const i = parse(featuresIn, body);
+  const old = await first<any>(env.DB, "SELECT data FROM settings WHERE id = 'main'");
+  let cur: any = {};
+  try { cur = old ? JSON.parse(old.data) : {}; } catch { /* ignore */ }
+  const before = { uploads: cur.features?.uploads === true };
+  const merged = { ...cur, features: { ...(cur.features || {}), uploads: i.uploads } };
+  const tx = new Tx(env.DB, actor);
+  tx.run(
+    `INSERT INTO settings (id, data, sample, seq, created_at, updated_at) VALUES ('main', ?, 0, ${SEQ}, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET data=excluded.data, seq=excluded.seq, updated_at=excluded.updated_at`,
+    JSON.stringify(merged), tx.at, tx.at,
+  );
+  tx.audit('features.update', 'settings', 'main', before, { uploads: i.uploads });
+  await tx.commit();
+  return { ok: true };
+}
+
 /* ---------- remove sample data ---------- */
 const REMOVE: [string, string][] = [
   ['meterReadings', 'meter_readings'], ['statusEvents', 'status_events'], ['moves', 'moves'], ['issues', 'issues'], ['workOrders', 'work_orders'],
   ['vehicles', 'vehicles'], ['parts', 'parts'], ['mechanics', 'mechanics'], ['pmPrograms', 'pm_programs'], ['bases', 'bases'], ['settings', 'settings'],
 ];
 export async function removeSample(env: Env, actor: Actor) {
-  if (!hasPerm(actor.role, 'setup')) throw forbidden();
+  if (!can(actor, 'setup')) throw forbidden();
   // Records that hang off a sample unit go with it (they would show as "Unknown unit" otherwise).
   const sv = "SELECT id FROM vehicles WHERE sample = 1";
   const where: Record<string, string> = {

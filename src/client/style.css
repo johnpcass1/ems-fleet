@@ -502,3 +502,19 @@ body.wallmode .dcell .e,body.wallmode .dcell .m{font-size:14px}
 @media (max-width:480px){
   .banner.mobonly{display:flex}
 }
+
+/* ---------- uploads switched off: controls stay visible but clearly disabled ---------- */
+.attlabel:disabled{border-style:dashed;background:var(--surface-2);color:var(--muted);opacity:.75;cursor:not-allowed}
+.attlabel:disabled:hover{background:var(--surface-2)}
+.upnote{display:flex;align-items:center;gap:6px;margin:6px 0 0}
+.upnote .ic{flex:none;width:14px;height:14px}
+.chk .hint{display:block;margin-top:3px;font-size:12.5px;font-weight:400;color:var(--muted)}
+
+/* ---------- permissions drawer ---------- */
+.permgrp{margin:0 0 14px}
+.permrow{display:flex;justify-content:space-between;align-items:flex-start;gap:8px 12px;flex-wrap:wrap;padding:2px 0;border-bottom:1px solid var(--line)}
+.permrow:last-child{border-bottom:0}
+.permrow .chk{flex:1 1 220px}
+.permrow .btn.link{flex:none;padding:4px 0}
+.permrow .hint{display:block;margin-top:2px;font-size:12.5px;color:var(--muted)}
+.permrow input:disabled + span{color:var(--muted)}

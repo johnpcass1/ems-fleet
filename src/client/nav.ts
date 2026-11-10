@@ -2,7 +2,7 @@
 import { ui, saveUi, D, S, hasSample } from './state';
 import { closeDrawer } from './dom';
 import { $, esc } from './util';
-import { hasPerm } from '../shared/perm';
+import { can } from './state';
 
 export const ALL_ROUTES = ['board', 'dispatch', 'vehicles', 'vehicle', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'setup', 'users'];
 export const ROUTE_LABELS: Record<string, string> = { board: 'Status board', dispatch: 'Dispatch', vehicles: 'Vehicles', pm: 'Preventive maintenance', issues: 'Problems', 'work-orders': 'Work orders', parts: 'Parts & mechanics', reports: 'Reports', setup: 'Setup', users: 'Users' };
@@ -15,8 +15,8 @@ export function allowedRoutes(): string[] {
   const role = S.me?.role;
   if (!role) return [];
   if (role === 'dispatcher') return ['dispatch'];
-  const r = ALL_ROUTES.filter((x) => x !== 'users');
-  if (hasPerm(role, 'users')) r.push('users');
+  const r = ALL_ROUTES.filter((x) => x !== 'users' && (x !== 'reports' || can('viewReports')));
+  if (can('users')) r.push('users');
   return r;
 }
 export function route(): string {

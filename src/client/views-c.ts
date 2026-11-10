@@ -2,7 +2,7 @@
 // Screens: reports (with CSV export) and setup.
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
-import { D, LST, ui, S, can, canWo, canPlan, settings, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
+import { D, LST, ui, S, S as APP, featureUploads, can, canWo, canPlan, settings, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
 import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
 import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip, pageHead } from './bits';
 import { icon } from './icons';
@@ -104,7 +104,7 @@ VIEWS.reports=function(){
 
 /* ---- setup ---- */
 VIEWS.setup=function(){
-  const S=settings(),m=can('setup');
+  const S=settings(),m=can('setup'),su=!!(APP.me&&APP.me.isSuperuser);
   const rd=m?'':'disabled';
   return `${pageHead('Setup',{sub:m?'':'Only a fleet manager can change setup. You are viewing it read-only.'})}
   <div class="panel"><div class="ph"><h2>Bases</h2>${m?'<button class="btn sm" data-act="add-base" id="addBase">'+icon('plus')+'Add base</button>':''}</div>
@@ -119,6 +119,10 @@ VIEWS.setup=function(){
     ${field('Due soon window, hours',inp('st-h',S.dueSoonHours,'number',`min="0" ${rd}`))}${field('Due soon window, days',inp('st-d',S.dueSoonDays,'number',`min="0" ${rd}`))}
     ${field('Comeback window, days',inp('st-cb',S.comebackDays,'number',`min="0" ${rd}`),'A repeat repair of the same system within this many days is a comeback.')}</div>
     ${m?'<button class="btn primary" type="submit" id="st-save">Save settings</button>':''}</form></div>
+  ${su?`<div class="panel" id="featuresPanel"><div class="ph"><h2>Features</h2><span class="badge">Super user</span></div><form data-form="features" id="featuresForm" class="pb" novalidate>
+    <p class="small muted" style="margin-top:0">Site-wide switches. Only the super user sees this panel; fleet managers and system administrators cannot change it.</p>
+    <label class="chk" for="ft-uploads"><input type="checkbox" id="ft-uploads" name="ft-uploads" ${featureUploads()?'checked':''}><span><b>Photo and PDF uploads</b><br><span class="hint">When off, upload buttons stay visible but disabled, and people see that uploads are turned off for now.</span></span></label>
+    <div class="row" style="margin-top:12px"><button class="btn primary" type="submit" id="ft-save">Save features</button></div></form></div>`:''}
   <div class="panel"><div class="ph"><h2>Sample data</h2></div><div class="pb"><p class="small muted">Demo records, if any were loaded when the app was set up, are marked as sample data and can be removed in one step. Records you add yourself are never touched.</p>
   ${m?`<div class="row"><button class="btn danger" data-act="remove-sample" id="removeSample" ${hasSample()?'':'disabled'}>Remove sample data</button></div>`:'<p class="small muted">Fleet managers can remove sample data.</p>'}
   ${hasSample()?'<p class="small" style="margin:8px 0 0"><span class="badge">Sample data</span> is present.</p>':''}</div></div>`;

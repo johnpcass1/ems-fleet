@@ -1,7 +1,7 @@
 /** Client-side data cache, session info and the lookups the views share. */
 import { RANK, addDays, avgHoursPerDay, daysBetween, pmTaskStatus, projectDue, woTotal } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
-import { canOnVehicle, canWorkWO, hasPerm, type Actor } from '../shared/perm';
+import { canOnVehicle, canWorkWO, can as canActor, type Actor } from '../shared/perm';
 import { esc, todayStr } from './util';
 
 export const COLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'issues', 'workOrders', 'parts', 'mechanics', 'settings', 'moves', 'people'];
@@ -9,7 +9,7 @@ export const D: Record<string, Record<string, any>> = {};
 export const LST: Record<string, any[]> = {};
 COLS.forEach((c) => { D[c] = {}; LST[c] = []; });
 
-export interface Me extends Actor { mustChangePassword: boolean }
+export interface Me extends Actor { mustChangePassword: boolean; isSuperuser?: boolean }
 /** Mutable app-wide flags. */
 export const S = {
   me: null as Me | null,
@@ -47,7 +47,7 @@ export const role = () => S.me?.role || 'viewer';
 /** can('move') = role may ever do it. can('move', vehicle) = and for this unit. */
 export function can(key: string, v?: any): boolean {
   if (!S.me) return false;
-  if (!hasPerm(S.me.role, key)) return false;
+  if (!canActor(S.me, key)) return false;
   if (v === undefined) return true;
   return canOnVehicle(S.me, key, v?.baseId);
 }
@@ -63,6 +63,14 @@ let renderHook: () => void = () => {};
 export const setRenderHook = (f: () => void) => { renderHook = f; };
 export const scheduleRender = () => renderHook();
 
+/** The server sends the person's current role and permissions with every sync. Returns true when something changed, so the screen is redrawn. */
+export function applyMe(m: any): boolean {
+  if (!m || !S.me) return false;
+  const sig = (x: any) => JSON.stringify([x.role, x.baseIds, x.mechanicId, x.isSuperuser, x.perms]);
+  if (sig(S.me) === sig(m)) return false;
+  Object.assign(S.me, { role: m.role, baseIds: m.baseIds, mechanicId: m.mechanicId, isSuperuser: !!m.isSuperuser, perms: m.perms });
+  return true;
+}
 export function applySync(res: any) {
   if (res.full) COLS.forEach((c) => { D[c] = {}; });
   for (const c of Object.keys(res.data || {})) {
@@ -94,6 +102,11 @@ export const nameOf = (id: any) => (id && D.people[id]?.name) || 'Someone';
 
 /* ---- lookups ---- */
 export const settings = () => ({ approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, ...(D.settings.main || {}) });
+/** Photo and PDF uploads switch (Setup). Anything but a real `true` (including a missing key) means OFF. */
+export const featureUploads = () => (D.settings.main || {}).features?.uploads === true;
+/** 'on' = may upload; 'off' = the site-wide switch is off (super user only can change it); 'noperm' = switch is on but this person has no upload permission. */
+export const uploadState = (): 'on' | 'off' | 'noperm' => (!featureUploads() ? 'off' : can('upload') ? 'on' : 'noperm');
+export const uploadsOn = () => uploadState() === 'on';
 export const vehiclesSorted = () => LST.vehicles.slice().sort((a, b) => String(a.unit).localeCompare(String(b.unit), undefined, { numeric: true }));
 export const basesSorted = () => LST.bases.slice().sort((a, b) => (a.name === 'HQ' ? -1 : b.name === 'HQ' ? 1 : String(a.name).localeCompare(b.name)));
 export const baseName = (id: any) => D.bases[id]?.name || 'Unassigned';

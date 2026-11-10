@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AppEnv } from './env';
 import { HttpError, bad, parse, nowISO } from './http';
 import { Tx, SEQ, first } from './db';
-import { COOKIE, createSession, hashPassword, iterationsFor, passwordProblem, sha256Hex } from './auth';
+import { COOKIE, actorFrom, createSession, hashPassword, iterationsFor, passwordProblem, sha256Hex } from './auth';
 import { emailEnabled, getMailer, resetMessage, setPasswordLink } from './mail';
 import { lookupToken, newToken, retireUnused } from './tokens';
 
@@ -14,7 +14,7 @@ export const FORGOT_PER_EMAIL = 3;
 export const FORGOT_PER_IP = 10;
 const WINDOW_MS = 3600e3;
 
-export const publicMe = (u: any) => ({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, mustChangePassword: !!u.mustChangePassword });
+export const publicMe = (u: any) => ({ id: u.id, email: u.email, name: u.name, role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, mustChangePassword: !!u.mustChangePassword, isSuperuser: !!u.isSuper, perms: u.perms ?? {} });
 
 const forgotIn = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(200) });
 const tokenIn = z.object({ token: z.string().max(200) });
@@ -73,9 +73,7 @@ export async function setPasswordFromLink(c: Context<AppEnv>) {
   const u = t.user;
   const problem = passwordProblem(i.newPassword, u.email);
   if (problem) throw bad(problem);
-  let baseIds: string[] = [];
-  try { baseIds = JSON.parse(u.base_ids); } catch { /* ignore */ }
-  const actor = { id: u.id, email: u.email, name: u.name, role: u.role, baseIds, mechanicId: u.mechanic_id ?? null };
+  const actor = actorFrom(c.env, u);
   const tx = new Tx(c.env.DB, actor);
   // Claim the link first; the guard fails the whole batch if someone used it a moment ago.
   tx.run('UPDATE account_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL', tx.at, t.id);

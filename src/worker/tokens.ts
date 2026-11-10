@@ -33,12 +33,12 @@ export async function lookupToken(env: Env, token: string): Promise<TokenState> 
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return { state: 'invalid' };
   const r = await first<any>(
     env.DB,
-    `SELECT t.id, t.purpose, t.expires_at, t.used_at, u.id AS uid, u.email, u.name, u.role, u.base_ids, u.mechanic_id, u.active
+    `SELECT t.id, t.purpose, t.expires_at, t.used_at, u.id AS uid, u.email, u.name, u.role, u.base_ids, u.mechanic_id, u.active, u.perm_overrides
      FROM account_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
     await sha256Hex(token),
   );
   if (!r || !r.active) return { state: 'invalid' };
   if (r.used_at) return { state: 'used', purpose: r.purpose };
   if (Date.parse(r.expires_at) < Date.now()) return { state: 'expired', purpose: r.purpose };
-  return { state: 'valid', id: r.id, purpose: r.purpose, user: { id: r.uid, email: r.email, name: r.name, role: r.role, base_ids: r.base_ids, mechanic_id: r.mechanic_id } };
+  return { state: 'valid', id: r.id, purpose: r.purpose, user: { id: r.uid, email: r.email, name: r.name, role: r.role, base_ids: r.base_ids, mechanic_id: r.mechanic_id, perm_overrides: r.perm_overrides } };
 }

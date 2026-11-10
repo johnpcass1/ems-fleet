@@ -30,7 +30,7 @@ async function startServer({ port = 8799, persist = '.wrangler/e2e', email = fal
   PORT = port; BASE = `http://localhost:${PORT}`; PERSIST = persist;
   rmSync(persist, { recursive: true, force: true });
   const common = ['--persist-to', persist];
-  const vars = ['--var', 'PBKDF2_ITERATIONS:2000', ...(email ? ['--var', `APP_URL:${BASE}`, '--var', 'RESEND_API_KEY:re_e2e_not_a_real_key', '--var', 'MAIL_FROM:GEMA Fleet <no-reply@gema.test>', '--var', 'MAIL_SINK:1'] : [])];
+  const vars = ['--var', 'PBKDF2_ITERATIONS:2000', '--var', 'SUPERUSER_EMAILS:admin@example.org', ...(email ? ['--var', `APP_URL:${BASE}`, '--var', 'RESEND_API_KEY:re_e2e_not_a_real_key', '--var', 'MAIL_FROM:GEMA Fleet <no-reply@gema.test>', '--var', 'MAIL_SINK:1'] : [])];
   log('Building...');
   let r = sh('npx', ['vite', 'build'], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr);
   r = sh('npx', ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--local', ...common], { stdio: 'pipe' }); if (r.status) throw new Error(r.stdout + r.stderr);
@@ -158,6 +158,65 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await page.click('#navBack');
     await page.waitForFunction(() => location.hash === '#vehicles');
   }, tag);
+  const NOTE = 'Photo and PDF uploads are turned off for now.';
+  const setUploadsInSetup = async (on) => {
+    await page.goto(BASE + '/#setup'); await page.waitForSelector('#ft-uploads');
+    if ((await page.locator('#ft-uploads').isChecked()) !== on) { await page.locator('#ft-uploads').setChecked(on); await page.click('#ft-save'); await page.waitForFunction(() => /Photo and PDF uploads turned o/.test(document.querySelector('#toasts')?.innerText || '')); }
+  };
+  const disabledBtn = async (loc) => {
+    if (!(await loc.isVisible())) throw new Error('not visible');
+    if (!(await loc.isDisabled())) throw new Error('not disabled');
+    if ((await loc.getAttribute('aria-disabled')) !== 'true') throw new Error('no aria-disabled');
+    if (!/turned off for now/.test((await loc.getAttribute('title')) || '')) throw new Error('no tooltip');
+  };
+  await check(page, 'super user: Setup shows the Features panel, uploads OFF by default, no uploads switch in the ordinary settings', async () => {
+    await page.goto(BASE + '/#setup'); await page.waitForSelector('#featuresPanel');
+    if (await page.locator('#ft-uploads').isChecked()) throw new Error('uploads switch is on by default');
+    if (!/Photo and PDF uploads/.test(await page.locator('label[for=ft-uploads]').innerText())) throw new Error('label');
+    if (!/upload buttons stay visible but disabled/.test(await page.locator('label[for=ft-uploads]').innerText())) throw new Error('help text');
+    if (await page.locator('#settingsForm #ft-uploads, #st-uploads').count()) throw new Error('uploads switch in ordinary settings');
+    await page.locator('#featuresPanel').scrollIntoViewIfNeeded();
+    await shot('04a-setup-features-uploads-off'); await noOverflow(page);
+  }, tag);
+  await check(page, 'uploads off: report a problem shows disabled Add photo and Attach PDF, and still saves', async () => {
+    await page.goto(BASE + '/#vehicles'); await page.waitForSelector('[data-act="open-vehicle"]');
+    await page.locator('[data-act="open-vehicle"]').first().click();
+    await page.waitForSelector('#vReport'); await page.click('#vReport');
+    await page.waitForSelector('#issueForm');
+    if (await page.locator('#issueForm input[type=file]').count()) throw new Error('a file picker exists while uploads are off');
+    const photo = page.locator('#issueForm button.attlabel', { hasText: 'Add photo' }), pdf = page.locator('#issueForm button.attlabel', { hasText: 'Attach PDF' });
+    await disabledBtn(photo); await disabledBtn(pdf);
+    await photo.click({ force: true, timeout: 1000 }).catch(() => {}); // a disabled button must do nothing
+    if (await page.locator('#ri-thumbs img').count()) throw new Error('clicking a disabled button added a photo');
+    if ((await page.locator('#upnote').innerText()).trim() !== NOTE) throw new Error('note text: ' + (await page.locator('#upnote').innerText()));
+    if (!(await page.locator('#upnote svg.ic').count())) throw new Error('no info icon');
+    await page.fill('#ri-title', `Wiper fault ${tag}`); await page.fill('#ri-desc', 'Left wiper sticks.');
+    await shot('08a-report-uploads-off'); await noOverflow(page);
+    await page.click('#ri-submit');
+    await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    await page.goto(BASE + '/#issues'); await page.getByText(`Wiper fault ${tag}`).first().click();
+    await page.waitForSelector('#attSec');
+    await disabledBtn(page.locator('#attSec button.attlabel', { hasText: 'Attach file' }));
+    if (!/turned off for now/.test(await page.locator('#attSec .upnote').innerText())) throw new Error('no note in the problem drawer');
+    if (await page.locator('#attSec input[type=file]').count()) throw new Error('file picker in drawer');
+    await page.keyboard.press('Escape');
+  }, tag);
+  await check(page, 'uploads off: work order drawer shows the disabled attach control', async () => {
+    await page.goto(BASE + '/#work-orders'); await page.waitForSelector('[data-act="open-wo"]');
+    await page.locator('[data-act="open-wo"]').first().click();
+    await page.waitForSelector('#attSec');
+    await disabledBtn(page.locator('#attSec button.attlabel', { hasText: 'Attach file' }));
+    if (!/turned off for now/.test(await page.locator('#attSec .upnote').innerText())) throw new Error('no note in the work order drawer');
+    await page.locator('#attSec').scrollIntoViewIfNeeded();
+    await shot('10a-wo-uploads-off'); await noOverflow(page);
+    await page.keyboard.press('Escape');
+  }, tag);
+  await check(page, 'super user: turn uploads on in Features', async () => {
+    await setUploadsInSetup(true);
+    await page.reload(); await page.waitForSelector('#ft-uploads');
+    if (!(await page.locator('#ft-uploads').isChecked())) throw new Error('switch did not stick');
+    await shot('04b-setup-uploads-on');
+  }, tag);
   let issueTitle = `Siren fault ${tag}`;
   await check(page, 'report a problem with a photo', async () => {
     await page.goto(BASE + '/#vehicles'); await page.waitForSelector('[data-act="open-vehicle"]');
@@ -251,6 +310,30 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     secrets.mech = { email: `mech-${tag}@example.org`, pass: await mk('Mechanic ' + tag, `mech-${tag}@example.org`, 'mechanic') };
     if (!(await page.getByText(`crew-${tag}@example.org`).count())) throw new Error('new user not listed');
   }, tag);
+  await check(page, 'users: super user badge, Permissions drawer for a crew member, a fleet manager and a system administrator are created', async () => {
+    await page.goto(BASE + '/#users'); await page.waitForSelector('#usersTable');
+    const me = page.locator('#usersTable tr', { hasText: secrets.adminEmail });
+    if (!/Super user/.test(await me.innerText())) throw new Error('no Super user badge');
+    if (await me.getByRole('button', { name: 'Permissions' }).count()) throw new Error('Permissions offered for yourself');
+    if (!/Super user/.test(await page.locator('#userbar').textContent())) throw new Error('no Super user label in the sidebar');
+    const crewRow = page.locator('#usersTable tr', { hasText: secrets.crew.email });
+    await crewRow.getByRole('button', { name: 'Permissions' }).click();
+    await page.waitForSelector('#permsForm');
+    if ((await page.locator('#permsForm input[data-perm]').count()) < 19) throw new Error('too few permission switches');
+    if (await page.locator('#permsForm input[data-perm]:disabled').count()) throw new Error('the super user should be able to change every switch');
+    if (!(await page.locator('#perm-report').isChecked()) || (await page.locator('#perm-move').isChecked())) throw new Error('crew defaults wrong');
+    await page.locator('#perm-move').check();
+    if (!(await page.locator('#chg-move').isVisible())) throw new Error('no Changed badge');
+    await page.click('#rst-move'); if (await page.locator('#perm-move').isChecked()) throw new Error('reset to role default did not work');
+    await shot('16-permissions-drawer'); await noOverflow(page);
+    await page.click('#perm-cancel'); await page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    // a fleet manager and a non-super system administrator, for the checks further down (created through the API as the super user)
+    for (const [k, role] of [['fm', 'fleet_manager'], ['sysadm', 'system_admin']]) {
+      secrets[k] = { email: `${k}-${tag}@example.org`, pass: `Typed-${k}-${tag}-9` };
+      const st = await page.evaluate(async ([email, password, role]) => (await fetch('/api/users', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ email, name: 'Person ' + email, role, password }) })).status, [secrets[k].email, secrets[k].pass, role]);
+      if (st !== 200) throw new Error('could not create ' + role + ': ' + st);
+    }
+  }, tag);
   await check(page, 'users: Set password for someone, no email actions without email', async () => {
     const row = page.locator('#usersTable tr', { hasText: `disp-${tag}@example.org` });
     if (await row.getByRole('button', { name: /reset link|resend invite/i }).count()) throw new Error('email actions shown although email is not set up');
@@ -273,7 +356,91 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await page.locator('#backupsPanel').scrollIntoViewIfNeeded().catch(() => {}); // the panel can redraw while it loads
     await shot('15-backups');
   }, tag);
+  await check(page, 'uploads turned off while a form is open: the problem is saved, a message explains, then back to default off', async () => {
+    await page.goto(BASE + '/#vehicles'); await page.waitForSelector('[data-act="open-vehicle"]');
+    await page.locator('[data-act="open-vehicle"]').first().click();
+    await page.waitForSelector('#vReport'); await page.click('#vReport'); await page.waitForSelector('#issueForm');
+    await page.fill('#ri-title', `Race fault ${tag}`);
+    await page.setInputFiles('#ri-photos', { name: 'race.png', mimeType: 'image/png', buffer: png(64, 48) });
+    await page.waitForSelector('#ri-thumbs img');
+    await page.evaluate(async () => { const r = await fetch('/api/features', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ uploads: false }) }); if (!r.ok) throw new Error('settings ' + r.status); });
+    await page.click('#ri-submit');
+    await page.waitForFunction(() => /turned off for now/.test(document.querySelector('#toasts')?.innerText || ''));
+    await page.goto(BASE + '/#issues'); await page.getByText(`Race fault ${tag}`).first().waitFor();
+    await setUploadsInSetup(false); // leave the database as a fresh install would be
+    for (let i = errs.length - 1; i >= 0; i--) if (/403/.test(errs[i])) errs.splice(i, 1); // the browser logs the deliberate 403 as a console error
+  }, tag);
   await check(page, 'logout', async () => { await logout(page); }, tag);
+}
+
+/** A fleet manager and a non-super system administrator: no Features panel, disabled upload buttons, hierarchy in the Users screen; and a permission change reaching a crew member's open screen. */
+async function managersFlow(browser, ctxOpts, tag, secrets) {
+  const mk = async (who) => {
+    const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(10000);
+    const errs = []; page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+    await login(page, secrets[who].email, secrets[who].pass); await page.waitForSelector('.urow', { timeout: 15000 });
+    return { ctx, page, errs };
+  };
+  const fm = await mk('fm'), crew = await mk('crew'), sa = await mk('sysadm');
+  const shot = (pg, n) => pg.screenshot({ path: `${SHOTS}/${tag}-${n}.png` });
+  await check(fm.page, 'fleet manager: no Features panel and no uploads switch in Setup', async () => {
+    await fm.page.goto(BASE + '/#setup'); await fm.page.waitForSelector('#settingsForm');
+    if (await fm.page.locator('#featuresPanel, #ft-uploads, #st-uploads').count()) throw new Error('fleet manager sees a features control');
+    if (/uploads/i.test(await fm.page.locator('#view').innerText())) throw new Error('uploads mentioned in Setup');
+  }, tag);
+  await check(fm.page, 'fleet manager: upload buttons are visible but disabled while uploads are off', async () => {
+    await fm.page.goto(BASE + '/#board'); await fm.page.waitForSelector('#boardReport'); await fm.page.click('#boardReport'); await fm.page.waitForSelector('#issueForm');
+    for (const t of ['Add photo', 'Attach PDF']) { const b = fm.page.locator('#issueForm button.attlabel', { hasText: t }); if (!(await b.isVisible()) || !(await b.isDisabled())) throw new Error(t + ' not visible+disabled'); }
+    if (!/turned off for now/.test(await fm.page.locator('#upnote').innerText())) throw new Error('note');
+    await shot(fm.page, '08b-report-uploads-off-fleet-manager');
+    await fm.page.keyboard.press('Escape');
+  }, tag);
+  await check(fm.page, 'fleet manager: Users screen hierarchy', async () => {
+    await fm.page.goto(BASE + '/#users'); await fm.page.waitForSelector('#usersTable tr:has-text("' + secrets.crew.email + '")');
+    const row = (email) => fm.page.locator('#usersTable tr', { hasText: email });
+    for (const email of [secrets.adminEmail, secrets.sysadm.email]) if (await row(email).getByRole('button').count()) throw new Error('fleet manager has actions on ' + email);
+    if (await row(secrets.fm.email).getByRole('button', { name: 'Permissions' }).count()) throw new Error('Permissions on yourself');
+    if (!(await row(secrets.crew.email).getByRole('button', { name: 'Permissions' }).count())) throw new Error('no Permissions for crew');
+    await fm.page.click('#addUser'); await fm.page.waitForSelector('#uf-role');
+    const roles = await fm.page.$$eval('#uf-role option', (o) => o.map((x) => x.value));
+    if (roles.includes('system_admin') || roles.includes('fleet_manager')) throw new Error('fleet manager may assign ' + roles.join());
+    await fm.page.keyboard.press('Escape');
+  }, tag);
+  await check(fm.page, 'fleet manager: Permissions drawer, disabled switches explain why; revoking Report problems reaches the crew member without a re-login', async () => {
+    await crew.page.goto(BASE + '/#board'); await crew.page.waitForSelector('#boardReport');
+    await fm.page.goto(BASE + '/#users'); await fm.page.waitForSelector('#usersTable');
+    await fm.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
+    await fm.page.waitForSelector('#permsForm');
+    for (const k of ['users', 'setup', 'backups']) {
+      if (!(await fm.page.locator(`#perm-${k}`).isDisabled())) throw new Error(k + ' should be disabled');
+      if (!/Only the super user can grant this/.test(await fm.page.locator(`#why-${k}`).innerText())) throw new Error('no reason for ' + k);
+    }
+    if (await fm.page.locator('#perm-report').isDisabled()) throw new Error('report should be switchable');
+    await fm.page.locator('#perm-report').uncheck();
+    if (!(await fm.page.locator('#chg-report').isVisible())) throw new Error('no Changed badge');
+    await shot(fm.page, '16b-permissions-drawer-fleet-manager'); await noOverflow(fm.page);
+    await fm.page.click('#perm-save'); await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    if (!/Permissions saved/.test(await toastText(fm.page))) throw new Error('no saved toast');
+    await crew.page.evaluate(() => window.dispatchEvent(new Event('focus'))); // wakes the sync that normally runs every 20 s
+    await crew.page.waitForFunction(() => !document.querySelector('#boardReport'), null, { timeout: 15000 });
+    // and back: Reset all to role default
+    await fm.page.locator('#usersTable tr', { hasText: secrets.crew.email }).getByRole('button', { name: 'Permissions' }).click();
+    await fm.page.waitForSelector('#permsForm'); await fm.page.click('#perm-resetall'); await fm.page.click('#perm-save');
+    await fm.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    await crew.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await crew.page.waitForSelector('#boardReport', { timeout: 15000 });
+  }, tag);
+  await check(sa.page, 'system administrator (not super): no Features panel, no actions on the super user, cannot assign system admin', async () => {
+    await sa.page.goto(BASE + '/#setup'); await sa.page.waitForSelector('#settingsForm');
+    if (await sa.page.locator('#featuresPanel').count()) throw new Error('system admin sees Features');
+    await sa.page.goto(BASE + '/#users'); await sa.page.waitForSelector('#usersTable tr:has-text("' + secrets.fm.email + '")');
+    if (await sa.page.locator('#usersTable tr', { hasText: secrets.adminEmail }).getByRole('button').count()) throw new Error('actions on the super user');
+    if (!(await sa.page.locator('#usersTable tr', { hasText: secrets.fm.email }).getByRole('button', { name: 'Permissions' }).count())) throw new Error('no Permissions for fleet manager');
+    await sa.page.click('#addUser'); await sa.page.waitForSelector('#uf-role');
+    if ((await sa.page.$$eval('#uf-role option', (o) => o.map((x) => x.value))).includes('system_admin')) throw new Error('system admin can assign system admin');
+    await sa.page.keyboard.press('Escape');
+  }, tag);
+  for (const x of [fm, crew, sa]) { await check(x.page, 'manager flow: no console errors', async () => { const real = x.errs.filter((e) => !/40[13]/.test(e)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag); await x.ctx.close(); }
 }
 
 /** Fonts are self-hosted (the CSP allows 'self' only), so any request to another host is a fault. */
@@ -519,6 +686,7 @@ async function emailFlow(browser, cfg, secrets) {
     await adminFlow(page, cfg, tag, secrets, errs);
     await check(page, 'admin: no console errors', async () => { let skip = expected401; const real = errs.filter((e) => !(skip > 0 && /401/.test(e) && skip--)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag);
     await ctx.close();
+    await managersFlow(browser, ctxOpts, tag, secrets);
     await roleFlow(browser, ctxOpts, tag, 'crew', secrets, 'crew');
     await roleFlow(browser, ctxOpts, tag, 'disp', secrets, 'dispatcher');
     await roleFlow(browser, ctxOpts, tag, 'mech', secrets, 'mechanic');

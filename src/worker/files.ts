@@ -4,7 +4,8 @@ import { Tx, SEQ, first } from './db';
 import { HttpError, bad, forbidden, notFound, conflict, uid } from './http';
 import { canOnVehicle, canWorkWO, FULL_READ } from '../shared/perm';
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPES } from '../shared/constants';
-import { hasPerm } from '../shared/perm';
+import { can } from '../shared/perm';
+import { getSettings } from './rules';
 
 /** Identify the real file type from its first bytes. The declared type is never trusted on its own. */
 export function sniff(b: Uint8Array): string | null {
@@ -22,6 +23,7 @@ export function safeFilename(n: string) {
 }
 const asciiName = (n: string) => n.replace(/[^\x20-\x7e]/g, '_');
 const MAX_FILES_PER_ENTITY = 25;
+const UPLOADS_OFF_MSG = 'Photo and PDF uploads are turned off for now.';
 
 async function authorize(c: Context<AppEnv>, entityType: string, entityId: string) {
   const user = c.var.user;
@@ -43,6 +45,9 @@ async function authorize(c: Context<AppEnv>, entityType: string, entityId: strin
 }
 
 export async function uploadAttachment(c: Context<AppEnv>) {
+  // Authoritative switch (Setup > Photo and PDF uploads). Checked before the body is read, so nothing reaches R2 while it is off.
+  if (!(await getSettings(c.env.DB)).features.uploads) return c.json({ error: 'uploads_disabled', code: 'uploads_disabled', message: UPLOADS_OFF_MSG }, 403);
+  if (!can(c.var.user, 'upload')) throw forbidden(); // the person's own permission, on top of the site-wide switch
   const len = Number(c.req.header('content-length') || 0);
   if (len > MAX_UPLOAD_BYTES + 64 * 1024) throw new HttpError(413, 'That file is over 20 MB.', 'too_large');
   let form: FormData;
@@ -100,7 +105,7 @@ export async function downloadAttachment(c: Context<AppEnv>) {
 
 export async function deleteAttachment(c: Context<AppEnv>) {
   const user = c.var.user;
-  if (!hasPerm(user.role, 'delAttach')) throw forbidden();
+  if (!can(user, 'delAttach')) throw forbidden();
   const a = await first<any>(c.env.DB, 'SELECT * FROM attachments WHERE id = ?', c.req.param('id'));
   if (!a) throw notFound();
   const parentTable = a.entity_type === 'issue' ? 'issues' : 'work_orders';

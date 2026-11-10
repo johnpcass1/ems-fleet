@@ -2,7 +2,7 @@
 // Screens: PM queue, issues, work orders, parts and mechanics, plus the issue / work order detail HTML.
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
-import { D, LST, ui, S, can, canWo, canPlan, settings, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
+import { D, LST, ui, S, can, canWo, canPlan, settings, uploadsOn, uploadState, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
 import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
 import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip, pageHead, actBtn, emptyState } from './bits';
 import { icon } from './icons';
@@ -56,7 +56,14 @@ VIEWS.issues=function(){
   ${can('issues')?`<td>${i.status==='open'?`<button class="btn sm ghost danger" data-act="dismiss-issue" data-id="${esc(i.id)}" id="dis-${esc(i.id)}">Dismiss</button>`:''}</td>`:''}</tr>`).join('')||`<tr><td colspan="7" class="muted">No problems match these filters.</td></tr>`}
   </tbody></table></div></div>`;
 };
+export const UPLOADS_OFF_NOTE='Photo and PDF uploads are turned off for now.';
+export const UPLOADS_NOPERM_NOTE='You don’t have permission to upload photos or PDFs.';
+const offMsg=()=>uploadState()==='noperm'?UPLOADS_NOPERM_NOTE:UPLOADS_OFF_NOTE;
+/** Upload buttons stay on screen when uploads are off, so people know the capability exists; they are just disabled. */
+const offBtn=(ico,label,sm='')=>`<button type="button" class="btn${sm} attlabel" disabled aria-disabled="true" title="${esc(offMsg())}">${icon(ico)}${label}</button>`;
+const offNote=()=>`<p class="tiny muted upnote" id="upnote" role="note">${icon('info')}<span>${esc(offMsg())}</span></p>`;
 function photoBlockHtml(){
+  if(!uploadsOn())return `<div style="margin-bottom:12px"><div class="row">${offBtn('image','Add photo')}${offBtn('file','Attach PDF')}</div>${offNote()}</div>`;
   return `<div style="margin-bottom:12px"><div class="row"><input class="sr" type="file" id="ri-photos" accept="image/jpeg,image/png,image/webp" multiple><label class="btn attlabel" for="ri-photos">${icon('image')}Add photo</label>
     <input class="sr" type="file" id="ri-pdf" accept="application/pdf,.pdf" multiple><label class="btn attlabel" for="ri-pdf">${icon('file')}Attach PDF</label></div>
     <div id="ri-thumbs" class="pths" aria-live="polite"></div><div class="tiny muted" style="margin-top:4px">Photos are shrunk before they are sent. Files up to 20 MB each.</div></div>`;
@@ -143,7 +150,9 @@ export function attHtml(coll,doc){
     ${ok?`<a class="btn sm" href="${esc(fileUrl(a.assetId))}" target="_blank" rel="noopener">Open</a>`:''}
     ${can('delAttach')?`<button type="button" class="btn sm ghost danger" data-act="att-rm" data-coll="${coll}" data-id="${esc(doc.id)}" data-asset="${esc(a.assetId)}" id="attrm-${esc(a.assetId)}" aria-label="Remove ${esc(a.name)}">Remove</button>`:''}</li>`;}).join('');
   let ctl='';
-  if(canAttach(coll,doc)){
+  if(canAttach(coll,doc)&&!uploadsOn()){
+    ctl=`<div class="row">${offBtn('clip','Attach file',' sm')}</div>${offNote()}`;
+  }else if(canAttach(coll,doc)){
     ctl=`<div class="row"><input class="sr" type="file" id="att-file" data-att="${coll}:${esc(doc.id)}" accept=".pdf,image/jpeg,image/png,image/webp" multiple><label class="btn sm attlabel" for="att-file">${icon('clip')}Attach file</label><span class="tiny muted">PDF, JPEG, PNG or WebP, up to 20 MB each</span></div>`;
   }
   return `${list.length?`<ul class="att">${rows}</ul>`:'<p class="small muted">No files attached.</p>'}${up.map(u=>`<p class="small" role="status">${esc(u.name)}: ${esc(u.state)}</p>`).join('')}${ctl}`;

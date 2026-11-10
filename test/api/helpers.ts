@@ -23,8 +23,9 @@ export async function api(method: string, path: string, opts: { body?: any; cook
 
 let n = 0;
 export async function makeUser(role: string, o: { email?: string; baseIds?: string[]; mechanicId?: string | null; name?: string; mustChange?: boolean; active?: boolean } = {}) {
-  const email = o.email ?? `${role}${++n}@gema.test`;
-  const id = `u-${role}-${n}`;
+  const k = ++n;
+  const email = o.email ?? `${role}${k}@gema.test`;
+  const id = `u-${role}-${k}`;
   const now = new Date().toISOString();
   await E.DB.batch([
     E.DB.prepare('UPDATE counter SET v = v + 1 WHERE id = 1'),
@@ -65,3 +66,17 @@ export async function syncAll(cookie: string, since = 0) {
   return r.json;
 }
 export const byId = (list: any[], id: string) => list.find((x) => x.id === id);
+
+/** The super user's address, from SUPERUSER_EMAILS in wrangler.jsonc (the API tests run with that config). */
+export const SUPER_EMAIL = 'johnpcass3@gmail.com';
+/** Log in as the super user (creating the account on first use in a test). */
+export async function superCookie(): Promise<string> {
+  const have = await E.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(SUPER_EMAIL).first();
+  if (!have) await makeUser('system_admin', { email: SUPER_EMAIL, name: 'Super User' });
+  return loginAs({ email: SUPER_EMAIL, password: PASSWORD });
+}
+/** Photo and PDF uploads are OFF by default and only the super user can change that. Tests that upload turn them on through the API, as the super user would. */
+export async function setUploads(_ignored: string | null, on = true) {
+  const r = await api('PUT', '/api/features', { cookie: await superCookie(), body: { uploads: on } });
+  if (r.status !== 200) throw new Error('could not set uploads ' + JSON.stringify(r.json));
+}
