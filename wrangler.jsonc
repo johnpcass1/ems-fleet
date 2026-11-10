@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "gema-fleet",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "c6d89dc4-8784-4698-a40a-9cef6941bbe1",
       "migrations_dir": "migrations"
     }
   ],
