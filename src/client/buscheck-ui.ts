@@ -207,6 +207,17 @@ const sectionOf = (id: string) => secs(listFor(unit())).find((s) => s.id === id)
 const itemOf = (id: string) => flatItems(secs(listFor(unit()))).find((i) => i.id === id);
 const keep = () => { saveDraft(); };
 /** Update the counters without redrawing the page (so typing is never interrupted). */
+/** Redraw one item in place (after its reading, date or count changes). Only that item is replaced, so the box the person moved on to
+ *  keeps focus and the phone keyboard stays open; a whole-page redraw here would replace the box they just tapped. */
+function patchItem(id: string) {
+  const it = itemOf(id), li = document.getElementById('bci-' + id);
+  if (it && li) {
+    const ae = document.activeElement as HTMLElement | null, aid = ae && li.contains(ae) ? ae.id : '';
+    li.outerHTML = itemHtml(it);
+    if (aid) (document.getElementById(aid) as HTMLElement | null)?.focus(); // e.g. moved from "How many" to "Note" in the same item
+  }
+  refreshBar();
+}
 function refreshBar() {
   const v = unit(), l = listFor(v);
   if (!v || !l) return;
@@ -216,7 +227,7 @@ function refreshBar() {
   if (b) { b.textContent = `${p.shortages} ${p.shortages === 1 ? 'shortage' : 'shortages'}`; b.className = p.shortages ? 'bad' : 'muted'; }
   for (const s of secs(l)) {
     const q = progress([s], st.answers), el = $('#bcp-' + CSS.escape(s.id));
-    if (el) { el.textContent = `${q.done} of ${q.total}`; el.classList.toggle('ok', q.total > 0 && q.done === q.total); }
+    if (el) { const all = q.total > 0 && q.done === q.total; el.textContent = st.showMissing && !all ? `${q.total - q.done} not answered` : `${q.done} of ${q.total}`; el.classList.toggle('ok', all); el.classList.toggle('bad', st.showMissing && !all); }
   }
 }
 
@@ -343,7 +354,7 @@ document.addEventListener('change', (e: any) => {
     case 'emt1': case 'emt2': case 'driver': { const p = st[k as 'emt1']; p.sel = el.value; if (el.value && el.value !== OTHER) p.name = ''; break; }
     case 'psev': st.problems[i].severity = el.value; break;
     case 'attest': st.attested = el.checked; break;
-    case 'date': case 'value': case 'qty': refreshBar(); scheduleRender(); keep(); return;
+    case 'date': case 'value': case 'qty': if (el.dataset.item) patchItem(el.dataset.item); keep(); return;
     default: return;
   }
   keep(); scheduleRender();

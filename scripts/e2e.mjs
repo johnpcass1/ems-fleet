@@ -795,7 +795,7 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.waitForTimeout(100);
     const prog = await p.locator('#bcProg').innerText();
     if (!/^(\d+) of \1 answered$/.test(prog)) throw new Error('progress is ' + prog);
-    if (!/^2 shortages$/.test(await p.locator('#bcShort').innerText())) throw new Error('shortage counter is ' + await p.locator('#bcShort').innerText());
+    await p.waitForFunction(() => document.querySelector('#bcShort')?.innerText === '2 shortages', null, { timeout: 5000 }).catch(async () => { throw new Error('shortage counter is ' + await p.locator('#bcShort').innerText()); });
     // a problem the crew reports themselves
     await p.click('#bcAddProblem'); await p.fill('#bc-pt-0', 'Cracked mirror (' + tag + ')');
     await p.waitForFunction((t) => document.querySelector('#bc-pt-0')?.value === t, 'Cracked mirror (' + tag + ')'); await p.evaluate(() => document.querySelector('[data-v="short"]').scrollIntoView({ block: 'center' }));
