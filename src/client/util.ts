@@ -61,3 +61,10 @@ export const val = (id: string) => {
   const el: any = document.getElementById(id);
   return el ? String(el.value).trim() : '';
 };
+
+/** Hand a file to the browser as a download (like the Reports CSV buttons). */
+export function saveBlob(name: string, blob: Blob) {
+  const u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 2000);
+}

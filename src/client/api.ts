@@ -30,6 +30,17 @@ export async function api<T = any>(method: string, path: string, body?: any, opt
   throw new ApiError(res.status, json?.message || json?.error || 'Something went wrong. Please try again.', code);
 }
 
+/** GET a file (for example a CSV export). Same error handling as api(). */
+export async function apiFile(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  let res: Response;
+  try { res = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store' }); } catch { throw uerr('Could not reach the server. Check your connection and try again.'); }
+  if (res.ok) return { blob: await res.blob(), headers: res.headers };
+  let json: any = null;
+  try { json = await res.json(); } catch { /* not JSON */ }
+  if (res.status === 401) authHook('login');
+  throw new ApiError(res.status, json?.message || json?.error || 'Something went wrong. Please try again.', json?.code ?? null);
+}
+
 /* ---------- sync: first load gets everything, after that only what changed ---------- */
 let syncing: Promise<boolean> | null = null;
 export function syncNow(): Promise<boolean> {

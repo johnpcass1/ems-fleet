@@ -2,7 +2,7 @@
 //   npm run e2e            runs everything at 390 px and 1280 px, light and dark
 // Uses the Chrome that is installed on the machine (set CHROME_PATH to point at another one), so no browser download is needed.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 
@@ -47,6 +47,7 @@ let failures = 0;
 async function check(page, name, fn, tag) {
   try { await fn(); results.push(['ok', tag, name]); log('  ok  ', name); }
   catch (e) {
+    if (process.env.E2E_DEBUG) console.log(String(e.stack || e.message).slice(0, 900));
     failures++; results.push(['FAIL', tag, name, String(e.message).split('\n')[0]]); log('  FAIL', name, '-', String(e.message).split('\n')[0]);
     try { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: `${SHOTS}/FAIL-${tag}-${name.replace(/\W+/g, '-')}.png` }); } catch { /* ignore */ }
   }
@@ -514,12 +515,165 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     await sa.page.goto(BASE + '/#setup'); await sa.page.waitForSelector('#settingsForm');
     if (await sa.page.locator('#featuresPanel').count()) throw new Error('system admin sees Features');
     await sa.page.goto(BASE + '/#users'); await sa.page.waitForSelector('#usersTable tr:has-text("' + secrets.fm.email + '")');
-    if (await sa.page.locator('#usersTable tr', { hasText: secrets.adminEmail }).getByRole('button').count()) throw new Error('actions on the super user');
+    if (await sa.page.locator('#usersTable tr', { hasText: secrets.adminEmail }).getByRole('button').filter({ hasNotText: 'View activity' }).count()) throw new Error('actions on the super user');
     if (!(await sa.page.locator('#usersTable tr', { hasText: secrets.fm.email }).getByRole('button', { name: 'Permissions' }).count())) throw new Error('no Permissions for fleet manager');
     await sa.page.click('#addUser'); await sa.page.waitForSelector('#uf-role');
     if ((await sa.page.$$eval('#uf-role option', (o) => o.map((x) => x.value))).includes('system_admin')) throw new Error('system admin can assign system admin');
     await sa.page.keyboard.press('Escape');
   }, tag);
+  /* ---- Activity history ---- */
+  const gotoActivity = async (pg) => {
+    if (await pg.locator('#menuBtn').isVisible()) await pg.click('#menuBtn');
+    await pg.click('#nav a[data-r="activity"]');
+    await pg.waitForFunction(() => location.hash === '#activity');
+    await pg.waitForSelector('#actFilters');
+  };
+  /** Below 640 px the filters sit behind a Filters button. */
+  const openFilters = async (pg) => { if ((await pg.locator('#actFiltersBtn').isVisible()) && !(await pg.locator('#actMore').isVisible())) await pg.click('#actFiltersBtn'); };
+  const rowsOf = (pg) => pg.locator('.actrow');
+  const waitRows = (pg) => pg.waitForSelector('.actrow');
+  const panelText = (pg) => pg.locator('#actPanel').innerText();
+  await check(su.page, 'activity history: the super user opens it from the sidebar and reads the earlier role and permission changes as sentences', async () => {
+    await gotoActivity(su.page); await waitRows(su.page);
+    if (!/Activity history/.test(await su.page.locator('#view h1').innerText())) throw new Error('title');
+    if (!/(Admin\s*\/\s*)?Activity history/.test((await su.page.locator('#crumbs').innerText()).replace(/\n/g, ' '))) throw new Error('breadcrumb: ' + await su.page.locator('#crumbs').innerText());
+    const t = await panelText(su.page);
+    if (!/Turned off 'Report problems' for Crew/.test(t)) throw new Error("no role permission sentence:\n" + t.slice(0, 600));
+    if (!/Changed FM Crew .+'s role from Crew to Base supervisor/.test(t)) throw new Error('no role change sentence:\n' + t.slice(0, 600));
+    if (!/Signed in/.test(t)) throw new Error('no sign-in');
+    if (!/^(Today|Yesterday)$/.test((await su.page.locator('.actday').first().innerText()).trim())) throw new Error('day heading');
+    if (!/^\d\d:\d\d$/.test((await su.page.locator('.at-t').first().innerText()).trim())) throw new Error('time is not HH:MM');
+    if (/[{}]|baseId|before_json/.test(t)) throw new Error('raw JSON or field names on screen');
+    await shot(su.page, '18-activity'); await noOverflow(su.page);
+    if (await su.page.locator('#actFiltersBtn').isVisible()) { await su.page.click('#actFiltersBtn'); await noOverflow(su.page); await shot(su.page, '18c-activity-filters-open'); await su.page.click('#actFiltersBtn'); }
+  }, tag);
+  await check(su.page, 'activity history: filter by type, see the moves, expand a row for before -> after, keyboard works', async () => {
+    await openFilters(su.page);
+    await su.page.selectOption('#act-type', 'vehicles');
+    await su.page.waitForFunction(() => { const r = [...document.querySelectorAll('.actrow')]; return r.length > 0 && r.every((x) => x.dataset.cat === 'vehicles'); });
+    const mv = rowsOf(su.page).filter({ hasText: /^.*Moved GEMA-\S+ from .+ to .+/s }).first();
+    await mv.waitFor();
+    const btn = mv.locator('.at-x');
+    if ((await btn.getAttribute('aria-expanded')) !== 'false') throw new Error('should start collapsed');
+    await btn.click();
+    const diff = su.page.locator('.actdiff').first();
+    await diff.waitFor();
+    if ((await btn.getAttribute('aria-expanded')) !== 'true' || !(await btn.getAttribute('aria-controls'))) throw new Error('aria state');
+    const d = await diff.innerText();
+    if (!/What changed/i.test(d) || !/Before/i.test(d) || !/After/i.test(d) || !/Base/.test(d)) throw new Error('diff content: ' + d);
+    if (/[{}"]|baseId|tempUntil/.test(d)) throw new Error('raw JSON in the diff: ' + d);
+    const cells = await diff.locator('tbody tr').first().locator('td').allInnerTexts();
+    if (cells.length !== 3 || !cells[2].includes('\u2192')) throw new Error('before / after columns: ' + cells.join(' | '));
+    await shot(su.page, '18b-activity-expanded'); await noOverflow(su.page);
+    await su.page.locator('.actrow .at-x[aria-expanded="true"]').first().focus();
+    await su.page.keyboard.press('Enter');
+    await su.page.waitForFunction(() => !document.querySelector('.actdiff'));
+    await su.page.locator('.actrow .at-x').first().focus();
+    await su.page.keyboard.press('Space');
+    await su.page.waitForSelector('.actdiff');
+  }, tag);
+  await check(su.page, 'activity history: work orders by type; a unit link opens the unit and Back returns to Activity history, filters kept', async () => {
+    await openFilters(su.page);
+    await su.page.selectOption('#act-type', 'work_orders');
+    await su.page.waitForFunction(() => { const r = [...document.querySelectorAll('.actrow')]; return r.length > 0 && r.every((x) => x.dataset.cat === 'work_orders'); });
+    if (!/Closed work order WO-\d+/.test(await panelText(su.page))) throw new Error('no closed work order sentence:\n' + (await panelText(su.page)).slice(0, 500));
+    // the work order number opens the drawer, and Back goes to Activity history
+    await su.page.locator('#actPanel .ulink[data-act="open-wo"]').first().click();
+    await su.page.waitForSelector('#drawerRoot .drawer');
+    if (!/Back to Activity history/.test(await su.page.locator('#dBack').innerText())) throw new Error('drawer back label: ' + await su.page.locator('#dBack').innerText());
+    await su.page.keyboard.press('Escape'); await su.page.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    await openFilters(su.page);
+    await su.page.selectOption('#act-type', 'vehicles');
+    await su.page.waitForFunction(() => { const r = [...document.querySelectorAll('.actrow')]; return r.length > 0 && r.every((x) => x.dataset.cat === 'vehicles'); });
+    await su.page.locator('#actPanel .ulink[data-act="open-vehicle"]').first().click();
+    await su.page.waitForSelector('#navBack');
+    if (!/Back to Activity history/.test((await su.page.locator('#navBack').getAttribute('aria-label')) || '')) throw new Error('crumb: ' + await su.page.locator('#navBack').getAttribute('aria-label'));
+    await su.page.click('#navBack');
+    await su.page.waitForFunction(() => location.hash === '#activity');
+    await waitRows(su.page);
+    await openFilters(su.page);
+    if ((await su.page.inputValue('#act-type')) !== 'vehicles') throw new Error('type filter lost after Back');
+    await su.page.selectOption('#act-type', '');
+  }, tag);
+  await check(su.page, 'activity history: filter by person, date range, empty state, clear', async () => {
+    await openFilters(su.page);
+    await su.page.selectOption('#act-user', { label: 'E2E Admin' });
+    await su.page.waitForFunction(() => { const w = [...document.querySelectorAll('.actrow .at-who b')]; return w.length > 0 && w.every((x) => x.textContent === 'E2E Admin'); });
+    await su.page.selectOption('#act-user', '');
+    const today = new Date(Date.now() - 4 * 3600e3).toISOString().slice(0, 10);
+    await su.page.fill('#act-from', today); await su.page.fill('#act-to', today);
+    await su.page.waitForFunction(() => document.querySelectorAll('.actrow').length > 0);
+    await su.page.fill('#act-from', '2031-01-01'); // a From later than To moves To along with it (no error)
+    await su.page.waitForFunction(() => document.getElementById('act-to').value === '2031-01-01');
+    await su.page.waitForSelector('#actClear');
+    if (!/No activity found/.test(await su.page.locator('.empty').innerText())) throw new Error('empty state text');
+    await shot(su.page, '18d-activity-empty'); await noOverflow(su.page);
+    await su.page.click('#actClear');
+    await waitRows(su.page);
+    if ((await su.page.inputValue('#act-from')) !== '') throw new Error('Clear filters did not clear the date');
+  }, tag);
+  await check(su.page, 'activity history: failed and successful sign-ins, search, Load more, CSV export of the filtered view', async () => {
+    // 55 failed sign-ins from unknown addresses (the browser logs each 401 as a console error; that is expected)
+    await su.page.evaluate(async (tg) => { for (let i = 0; i < 55; i++) await fetch('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ email: `bad-${i}-${tg}@example.org`, password: 'not-a-real-password' }) }); }, tag);
+    await su.page.reload(); await gotoActivity(su.page);
+    await openFilters(su.page);
+    await su.page.selectOption('#act-type', 'sign_ins');
+    // wait for the filtered list itself, not the old one still on screen while it reloads
+    await su.page.waitForFunction(() => document.querySelectorAll('.actrow').length === 50 && !/updating/.test(document.querySelector('#actPanel [role=status]')?.textContent || 'updating') && !document.querySelector('#actMoreBtn')?.disabled);
+    if (!(await su.page.locator('#actMoreBtn').isVisible())) throw new Error('no Load more');
+    if (!/Failed sign-in for bad-\d+-/.test(await panelText(su.page))) throw new Error('no failed sign-in sentence');
+    if (!(await su.page.locator('.actrow .badge.bad', { hasText: 'Failed' }).count())) throw new Error('no Failed badge');
+    await su.page.click('#actMoreBtn');
+    await su.page.waitForFunction(() => document.querySelectorAll('.actrow').length > 50);
+    if (await su.page.locator('#actMoreBtn').count()) { /* more may remain from earlier sign-ins; fine */ }
+    if (await su.page.locator('.actrow[id]').evaluateAll((e) => new Set(e.map((x) => x.id)).size !== e.length)) throw new Error('a row appears twice after Load more');
+    await su.page.fill('#act-q', `bad-3-${tag}`);
+    await su.page.waitForFunction(() => document.querySelectorAll('.actrow').length === 1 && !/updating/.test(document.querySelector('#actPanel [role=status]')?.textContent || 'updating'));
+    if (!(await panelText(su.page)).includes(`Failed sign-in for bad-3-${tag}@example.org`)) throw new Error('search did not find the address');
+    const [dl] = await Promise.all([su.page.waitForEvent('download'), su.page.click('#actExport')]);
+    if (!/^gema-fleet-activity-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename())) throw new Error('file name ' + dl.suggestedFilename());
+    const csv = readFileSync(await dl.path(), 'utf8').replace(/^\ufeff/, '').trim().split('\r\n');
+    if (csv.length !== 2 || !csv[0].startsWith('When (Guyana time),Person') || !csv[1].includes(`Failed sign-in for bad-3-${tag}@example.org`)) throw new Error('csv: ' + csv.join(' // '));
+    if (csv.join('').includes('not-a-real-password')) throw new Error('password in the export');
+    await su.page.fill('#act-q', ''); await su.page.selectOption('#act-type', '');
+  }, tag);
+  await check(su.page, 'activity history: "View activity" on a person (Users) and on a unit (History tab) open Activity filtered', async () => {
+    await su.page.goto(BASE + '/#users'); await su.page.waitForSelector('#usersTable');
+    const row = su.page.locator('#usersTable tr', { hasText: secrets.crew.email });
+    await row.getByRole('button', { name: /View activity for this person/ }).click();
+    await su.page.waitForFunction(() => location.hash === '#activity'); await waitRows(su.page);
+    await openFilters(su.page);
+    if (!(await su.page.inputValue('#act-user'))) throw new Error('person not selected');
+    await su.page.waitForFunction((n) => { const w = [...document.querySelectorAll('.actrow .at-who b')]; return w.length > 0 && w.every((x) => x.textContent === n); }, 'Crew ' + tag);
+    await su.page.click('#actClear').catch(() => {}); await su.page.selectOption('#act-user', '');
+    await su.page.goto(BASE + '/#vehicles'); await su.page.waitForSelector('[data-act="open-vehicle"]');
+    await su.page.locator('[data-act="open-vehicle"]').first().click();
+    await su.page.waitForSelector('[data-act="vtab"][data-tab="history"]'); await su.page.click('[data-act="vtab"][data-tab="history"]');
+    await su.page.click('#vaAct');
+    await su.page.waitForFunction(() => location.hash === '#activity');
+    await su.page.waitForSelector('#actEntity');
+    if (!/Showing activity for GEMA-/.test(await su.page.locator('#actEntity').innerText())) throw new Error('chip: ' + await su.page.locator('#actEntity').innerText());
+    await shot(su.page, '18e-activity-for-unit'); await noOverflow(su.page);
+    await su.page.click('#actEntityClear'); await su.page.waitForSelector('#actEntity', { state: 'detached' });
+  }, tag);
+  await check(sa.page, 'activity history: a system administrator sees the link and the page', async () => {
+    await gotoActivity(sa.page); await waitRows(sa.page);
+    const st = await sa.page.evaluate(async () => [(await fetch('/api/admin/activity', { credentials: 'same-origin' })).status, (await fetch('/api/admin/activity/export', { credentials: 'same-origin' })).status]);
+    if (st.join() !== '200,200') throw new Error('api ' + st.join());
+    await shot(sa.page, '18f-activity-system-admin'); await noOverflow(sa.page);
+  }, tag);
+  for (const [who, x] of [['fleet manager', fm], ['crew', crew]]) {
+    await check(x.page, `activity history: ${who} has no link, cannot open the page, and the API answers 403`, async () => {
+      if (await x.page.locator('#nav a[data-r="activity"]').count()) throw new Error('Activity link shown');
+      await x.page.goto(BASE + '/#activity'); await x.page.waitForSelector('#view h1');
+      await x.page.waitForTimeout(300);
+      if (/Activity history/.test(await x.page.locator('#view h1').innerText()) || (await x.page.locator('#actFilters').count())) throw new Error('page opened');
+      const st = await x.page.evaluate(async () => [(await fetch('/api/admin/activity', { credentials: 'same-origin' })).status, (await fetch('/api/admin/audit', { credentials: 'same-origin' })).status, (await fetch('/api/admin/activity/export', { credentials: 'same-origin' })).status]);
+      if (st.join() !== '403,403,403') throw new Error('api ' + st.join());
+      await x.page.goto(BASE + '/#board');
+      if (await x.page.locator('#usersTable').count()) throw new Error('unexpected users table');
+    }, tag);
+  }
   for (const x of [fm, crew, sa, su]) { await check(x.page, 'manager flow: no console errors', async () => { const real = x.errs.filter((e) => !/40[13]/.test(e)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag); await x.ctx.close(); }
 }
 

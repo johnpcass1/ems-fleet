@@ -10,6 +10,7 @@ import { showDrawer, closeDrawer, confirmUI } from './dom';
 import { listUsers, createUser, updateUser, setUserPassword, resendInvite, sendResetLink, setUserActive, saveUserPermissions, listBackups, backupStep } from './actions';
 import { pwFieldsHtml, passwordProblem } from './accounts-ui';
 import { api } from './api';
+import { canSeeActivity } from './nav';
 import { scheduleRender } from './state';
 
 export let usersCache: any[] | null = null;
@@ -52,7 +53,7 @@ VIEWS.users = function () {
   ${list === null ? '<tr><td colspan="7" class="muted">Loading...</td></tr>' : list.map((u) => `<tr class="${u.active ? '' : 'muted'}"><td><b>${esc(u.name)}</b>${u.isSuperuser?' <span class="badge acc" title="Set in code. Has every permission.">Super user</span>':''}${Object.keys(u.permOverrides||{}).length?' <span class="badge" title="Has permission changes from the role defaults">Custom permissions</span>':''}</td><td>${esc(u.email)}</td><td>${esc(ROLES[u.role] || u.role)}</td>
     <td>${scoped(u.role) ? esc((u.baseIds || []).map(bn).join(', ') || 'No base') : u.role === 'mechanic' ? esc(D.mechanics[u.mechanicId]?.name || 'No mechanic linked') : 'All'}</td>
     <td>${u.lastLoginAt ? fmtDT(u.lastLoginAt) : 'Never'}</td><td>${u.active ? (u.invited ? '<span class="badge warn">Invited — not yet set up</span>' : u.mustChangePassword ? '<span class="badge warn">Password not set yet</span>' : '<span class="badge ok">Active</span>') : '<span class="badge off">Deactivated</span>'}</td>
-    <td class="c-act"><div class="row tight">${!mayManage(u) && u.id !== S.me.id ? '' : `<button class="btn sm ghost" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
+    <td class="c-act"><div class="row tight">${canSeeActivity() ? `<button class="btn sm ghost" data-act="activity-for" data-type="user" data-id="${esc(u.id)}" id="va-${esc(u.id)}" aria-label="View activity for this person: ${esc(u.name)}">${icon('activity')}View activity</button>` : ''}${!mayManage(u) && u.id !== S.me.id ? '' : `<button class="btn sm ghost" data-act="edit-user" data-id="${esc(u.id)}" id="eu-${esc(u.id)}">Edit</button>
       ${mayManage(u) && mayEditPerms() ? `<button class="btn sm ghost" data-act="perm-user" data-id="${esc(u.id)}" id="pm-${esc(u.id)}">Permissions</button>` : ''}
       ${u.id === S.me.id ? '' : `<button class="btn sm ghost" data-act="setpw-user" data-id="${esc(u.id)}" id="sp-${esc(u.id)}">Set password</button>`}
       ${S.emailEnabled && u.active ? `<button class="btn sm ghost" data-act="${u.invited ? 'invite-user' : 'reset-user'}" data-id="${esc(u.id)}" id="${u.invited ? 'ri' : 'ru'}-${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}

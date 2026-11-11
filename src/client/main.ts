@@ -18,6 +18,7 @@ import { showDrawer, closeDrawer } from './dom';
 import { resetUsersCache, syncUserForm } from './users-ui';
 import { setProgressHook } from './files';
 import { refreshAtt } from './views-b';
+import { resetActivity } from './activity-ui';
 
 let started = false;
 let linkToken = '';
@@ -27,6 +28,7 @@ function clearData() {
   COLS.forEach((c) => { D[c] = {}; LST[c] = []; });
   resetSyncState();
   resetUsersCache();
+  resetActivity();
   closeDrawer();
 }
 function toLogin(message = '') {
