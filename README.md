@@ -36,6 +36,8 @@ The **super user** is set in code (see [docs/HANDOVER.md](docs/HANDOVER.md)) and
 
 These rules are enforced by the server, not just hidden in the screen. People log in with an Agency ID, an email and a password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
 
+**Bus checks.** At the start of each shift the crew do a full inspection of their ambulance on their phone (**Operations > Bus check**): the unit and station, who is on the crew, mileage and engine hours, every item on the checklist, and a tick to confirm. Anything short or failed becomes a problem in maintenance on its own, and the mileage and hours are saved as a meter reading. Managers see who has done their check, what was short and the full history at **Admin > Bus checks**, and fleet managers and system administrators can change the checklists there (**Requirements**). Three switches in Roles & permissions control it: *Do bus checks* (crew, base supervisors, fleet managers, system administrators), *View bus check reports* (base supervisors for their own bases, fleet managers, system administrators) and *Edit bus check requirements* (fleet managers and system administrators). See [docs/HANDOVER.md](docs/HANDOVER.md).
+
 ## Quick start on your own computer
 
 You need Node.js 22 or newer.
