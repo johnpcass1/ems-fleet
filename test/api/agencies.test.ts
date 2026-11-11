@@ -240,6 +240,11 @@ describe('ids from the other agency behave like unknown ids', () => {
     ['reset link', 'POST', '/api/users/{user}/reset-link'],
     ['download attachment', 'GET', '/api/attachments/{attachment}/file'],
     ['delete attachment', 'DELETE', '/api/attachments/{attachment}'],
+    ['restock a shortage', 'POST', '/api/bus-checks/equipment/restock', { ids: ['{issue}'] }],
+    ['equipment of the other agency\'s unit', 'GET', '/api/bus-checks/equipment?vehicleId={vehicle}'],
+    ['equipment of the other agency\'s base', 'GET', '/api/bus-checks/equipment?baseId={base}'],
+    ['equipment export of the other agency\'s unit', 'GET', '/api/bus-checks/equipment/export?vehicleId={vehicle}'],
+    ['known shortages of the other agency\'s unit', 'GET', '/api/bus-checks/equipment/known?vehicleId={vehicle}'],
   ];
   it('B using GEMA ids', async () => {
     await same(bAdmin, calls, { ...G, line: 'l-1' });

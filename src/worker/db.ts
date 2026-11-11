@@ -40,6 +40,21 @@ export class Tx {
     this.stmts.push(auditStmt(this.db, { agencyId: this.agency, at: this.at, userId: a?.id ?? null, email: a?.email ?? null, action, entityType, entityId, before, after }));
     return this;
   }
+  /**
+   * Several audit rows in ONE statement (a D1 batch counts every statement, and the free plan allows few per request), written through the same
+   * sanitiser as `audit`. Use it where one action writes many rows, for example a bus check that creates many problems.
+   */
+  auditMany(rows: { action: string; entityType: string; entityId: string | null; before?: unknown; after?: unknown }[]) {
+    if (!rows.length) return this;
+    const a = this.actor;
+    const js = (x: unknown) => (x === undefined || x === null ? null : JSON.stringify(sanitizeAudit(x)));
+    const payload = JSON.stringify(rows.map((r) => ({ action: r.action, et: r.entityType, id: r.entityId, b: js(r.before), a: js(r.after) })));
+    return this.run(
+      `INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, before_json, after_json, created_at, updated_at, agency_id)
+       SELECT ?, ?, ?, json_extract(j.value, '$.action'), json_extract(j.value, '$.et'), json_extract(j.value, '$.id'), json_extract(j.value, '$.b'), json_extract(j.value, '$.a'), ?, ?, ? FROM json_each(?) j ORDER BY j.key`,
+      this.at, a?.id ?? null, a?.email ?? null, this.at, this.at, this.agency, payload,
+    );
+  }
   async commit() {
     try {
       return await this.db.batch(this.stmts);
@@ -86,7 +101,7 @@ export const sampleCol = (r: any) => (r.sample ? { sample: true } : {});
  * Fetch ONE row of an agency-owned table by id, only if it belongs to `agency`. Anything else (unknown id, another agency's id) is simply "no row",
  * so callers answer exactly as they do for an id that does not exist. `table` must be one of the agency tables below (never user input).
  */
-export const AGENCY_TABLES = ['bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'vehicles', 'meter_readings', 'issues', 'work_orders', 'attachments', 'users'] as const;
+export const AGENCY_TABLES = ['bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'vehicles', 'meter_readings', 'issues', 'work_orders', 'attachments', 'users', 'bus_check_lists', 'bus_checks'] as const;
 export type AgencyTable = (typeof AGENCY_TABLES)[number];
 export function agencyRow<T = any>(db: D1Database, table: AgencyTable, agency: string, id: string): Promise<T | null> {
   if (!(AGENCY_TABLES as readonly string[]).includes(table)) throw new Error('agencyRow: not an agency table ' + table);

@@ -19,6 +19,19 @@ const row = (action: string, entityType: string, entityId: string | null, before
 const say = (r: any, lk: Lookup = L) => describePlain(r, lk);
 
 describe('describer sentences', () => {
+  it('equipment shortages and restocking', () => {
+    expect(say(row('issue.report', 'issue', 'i9', null, { vehicleId: 'v3', title: 'Bus check: Gauze short (2 of 6)', severity: 'minor', busCheckId: 'c1', shortage: true }))).toBe('Recorded an equipment shortage on GEMA-03 in a bus check: Gauze short (2 of 6)');
+    expect(say(row('issue.buscheck_link', 'issue', 'i9', null, { vehicleId: 'v3', title: 'Bus check: Gauze short (2 of 6)' }))).toBe("Added a new bus check finding to the equipment shortage 'Gauze short (2 of 6)' on GEMA-03");
+    expect(say(row('issue.restock', 'issue', 'i9', { status: 'open' }, { status: 'restocked', vehicleId: 'v3', title: 'Bus check: Gauze short (2 of 6)', note: 'From stores' }))).toBe("Marked 'Gauze short (2 of 6)' restocked on GEMA-03 (From stores)");
+    expect(say(row('issue.restock', 'issue', 'i1', null, { status: 'restocked' }))).toBe("Marked 'Siren dead' restocked on GEMA-03");
+    expect(say(row('issue.restock', 'issue', 'zz', null, null))).toBe('Marked an equipment shortage restocked');
+  });
+  it('bus checks', () => {
+    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 2, problems: 3 }))).toBe('Submitted a bus check on GEMA-03 with 2 shortages and 3 vehicle problems sent to maintenance');
+    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 0, problems: 0 }))).toBe('Submitted a bus check on GEMA-03 with no shortages');
+    expect(say(row('buschecklist.create', 'bus_check_list', 'l1', null, { starter: true, items: 79 }))).toBe('Started the bus check requirements from the standard list (79 items)');
+    expect(say(row('buschecklist.deactivate', 'bus_check_list', 'l1', { name: 'Box' }, { name: 'Box' }))).toBe("Made the bus check list 'Box' inactive");
+  });
   it('moves, status, readings, problems', () => {
     expect(say(row('vehicle.move', 'vehicle', 'v3', { baseId: 'hq' }, { baseId: 'linden', tempUntil: null }))).toBe('Moved GEMA-03 from HQ to Linden');
     expect(say(row('vehicle.move', 'vehicle', 'v3', { baseId: 'hq' }, { baseId: 'linden', tempUntil: '2026-11-20' }))).toBe('Moved GEMA-03 from HQ to Linden until 20/11/2026');
@@ -86,7 +99,7 @@ describe('describer sentences', () => {
 });
 
 describe('category mapping', () => {
-  it('maps actions to the nine categories', () => {
+  it('maps actions to the ten categories', () => {
     const m: [string, string, string][] = [
       ['vehicle.move', 'vehicle', 'vehicles'], ['vehicle.status', 'vehicle', 'vehicles'], ['reading.log', 'vehicle', 'vehicles'], ['reading.accept', 'meter_reading', 'vehicles'],
       ['issue.report', 'issue', 'problems'], ['issue.dismiss', 'issue', 'problems'], ['wo.create', 'work_order', 'work_orders'], ['wo.line.add', 'work_order', 'work_orders'],
@@ -94,13 +107,14 @@ describe('category mapping', () => {
       ['user.update', 'user', 'people'], ['role.permissions', 'role', 'people'], ['settings.update', 'settings', 'settings'], ['features.update', 'settings', 'settings'], ['base.create', 'base', 'settings'], ['sample.remove', 'sample', 'settings'],
       ['auth.login', 'user', 'sign_ins'], ['auth.login_failed', 'user', 'sign_ins'], ['auth.locked', 'user', 'sign_ins'], ['auth.logout', 'user', 'sign_ins'], ['backup.run', 'backup', 'backups'],
       ['attachment.add', 'issue', 'problems'], ['attachment.delete', 'work_order', 'work_orders'],
+      ['buscheck.submit', 'bus_check', 'bus_checks'], ['buschecklist.update', 'bus_check_list', 'bus_checks'], ['buschecklist.create', 'bus_check_list', 'bus_checks'],
     ];
     for (const [a, e, c] of m) expect(categoryOf(a, e), a).toBe(c);
     expect(categoryOf('something.new', 'x')).toBe('other');
     expect(categoryOf('attachment.add', 'vehicle')).toBe('other');
   });
   it('has nine categories, every rule points at one, and prefixes are safe for LIKE', () => {
-    expect(ACTIVITY_CATEGORIES).toHaveLength(9);
+    expect(ACTIVITY_CATEGORIES).toHaveLength(10);
     for (const r of CATEGORY_RULES) { expect(CATEGORY_KEYS).toContain(r.category); expect(r.prefix).toMatch(/^[a-z]+\.$/); }
   });
   it('every action the Worker writes has a category (so the Type filter can find it)', () => {

@@ -50,7 +50,7 @@ VIEWS.issues=function(){
   <div class="panel"><div class="tscroll"><table class="t"><thead><tr>${can('issues')?'<th class="chkcol"><span class="sr">Select</span></th>':''}<th>Unit</th><th>Problem</th><th>Severity</th><th>Status</th><th>Reported</th>${can('issues')?'<th></th>':''}</tr></thead><tbody>
   ${list.map(i=>`<tr>${can('issues')?`<td class="chkcol">${i.status==='open'?`<input type="checkbox" id="sel-${esc(i.id)}" data-sel="${esc(i.id)}" aria-label="Select ${esc(i.title)}" ${ui.selIssues.includes(i.id)?'checked':''}>`:''}</td>`:''}
   <td><button class="ulink" data-act="open-vehicle" data-id="${esc(i.vehicleId)}">${esc(unitOf(i.vehicleId))}</button><div class="tiny muted">${esc(baseName(baseOfV(i.vehicleId)))}</div></td>
-  <td><button class="btn link" data-act="open-issue" data-id="${esc(i.id)}" id="oi-${esc(i.id)}"><b>${esc(i.title)}</b></button>${attChip(i)}<div class="small muted">${esc(i.description||'')}</div>${thumbStrip(i)}</td><td>${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}</td>
+  <td><button class="btn link" data-act="open-issue" data-id="${esc(i.id)}" id="oi-${esc(i.id)}"><b>${esc(i.title)}</b></button>${attChip(i)}${i.source==='bus_check_report'?' <span class="badge acc">Bus check</span>':''}<div class="small muted">${esc(i.description||'')}</div>${thumbStrip(i)}</td><td>${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}</td>
   <td>${esc(ISSUE_ST[i.status]||i.status)}${i.woId&&D.workOrders[i.woId]?`<div><button class="btn link mono-s" data-act="open-wo" data-id="${esc(i.woId)}">${esc(D.workOrders[i.woId].number)}</button></div>`:''}</td>
   <td>${fmtDate(i.reportedAt)}<div class="tiny muted">${esc(nameOf(i.by))}</div></td>
   ${can('issues')?`<td>${i.status==='open'?`<button class="btn sm ghost danger" data-act="dismiss-issue" data-id="${esc(i.id)}" id="dis-${esc(i.id)}">Dismiss</button>`:''}</td>`:''}</tr>`).join('')||`<tr><td colspan="7" class="muted">No problems match these filters.</td></tr>`}
@@ -168,7 +168,7 @@ export function issueHtml(i){
   <h3 class="ititle">${esc(i.title)}</h3><p style="white-space:pre-wrap">${esc(i.description||'No description.')}</p>
   <dl class="dl" style="margin:12px 0 16px">${kv('Unit',v?`<button class="btn link mono-s" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
   ${kv('Reported',fmtDT(i.reportedAt))}${kv('Reported by',esc(nameOf(i.by)))}${kv('Engine hours at report',i.hours!=null?num(i.hours)+' h':'–')}
-  ${kv('Work order',wo?`<button class="btn link mono-s" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
+  ${i.busCheckId&&can('busCheckReports')?kv('Found by',`<button class="btn link" data-act="bc-open" data-id="${esc(i.busCheckId)}" id="issue-bc">The crew, in a bus check</button>`):i.source?kv('Found by','The crew, in a bus check'):''}${kv('Work order',wo?`<button class="btn link mono-s" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
   <h3>Attachments</h3><div id="attSec">${attHtml('issues',i)}</div>
   ${can('issues')&&i.status==='open'?`<div class="dfoot"><button class="btn primary" data-act="issue-wo" data-id="${esc(i.id)}" id="issue-wo">Create work order</button></div>`:''}`;
 }

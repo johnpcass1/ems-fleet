@@ -16,6 +16,7 @@ export const ACTIVITY_CATEGORIES = [
   { key: 'pm', label: 'Preventive maintenance' },
   { key: 'parts_mechanics', label: 'Parts & mechanics' },
   { key: 'people', label: 'People & permissions' },
+  { key: 'bus_checks', label: 'Bus checks' },
   { key: 'settings', label: 'Settings & features' },
   { key: 'sign_ins', label: 'Sign-ins' },
   { key: 'backups', label: 'Backups' },
@@ -38,6 +39,8 @@ export const CATEGORY_RULES: CategoryRule[] = [
   { prefix: 'attachment.', category: 'work_orders', entityType: 'work_order' },
   { prefix: 'wo.', category: 'work_orders' },
   { prefix: 'program.', category: 'pm' },
+  { prefix: 'buscheck.', category: 'bus_checks' },
+  { prefix: 'buschecklist.', category: 'bus_checks' },
   { prefix: 'part.', category: 'parts_mechanics' },
   { prefix: 'mechanic.', category: 'parts_mechanics' },
   { prefix: 'user.', category: 'people' },
@@ -243,8 +246,16 @@ const DESCRIBE: Record<string, Describer> = {
 
   /* problems */
   'issue.report': (r, L) => {
+    if (r.after?.shortage) return S('Recorded an equipment shortage on ', unitSeg(L, r.after?.vehicleId), ' in a bus check', r.after?.title ? `: ${String(r.after.title).replace(/^Bus check: /, '')}` : '');
     const sev = String(r.after?.severity || 'major').toLowerCase();
-    return S(`Reported ${aOrAn(sev)} ${sev} problem on `, unitSeg(L, r.after?.vehicleId), r.after?.title ? `: ${r.after.title}` : '');
+    return S(`Reported ${aOrAn(sev)} ${sev} problem on `, unitSeg(L, r.after?.vehicleId), r.after?.busCheckId ? ' in a bus check' : '', r.after?.title ? `: ${r.after.title}` : '');
+  },
+  'issue.buscheck_link': (r, L) => S('Added a new bus check finding to the equipment shortage ', `'${String(r.after?.title ?? 'a shortage').replace(/^Bus check: /, '')}'`, ' on ', unitSeg(L, r.after?.vehicleId)),
+  'issue.restock': (r, L) => {
+    const i = r.entityId ? L.issue(r.entityId) : null;
+    const title = String(r.after?.title ?? i?.title ?? '').replace(/^Bus check: /, '');
+    const vid = r.after?.vehicleId ?? i?.vehicleId ?? null;
+    return S(title ? `Marked '${title}' restocked` : 'Marked an equipment shortage restocked', ...(vid ? [' on ', unitSeg(L, vid)] : []), r.after?.note ? ` (${r.after.note})` : '');
   },
   'issue.dismiss': (r, L) => {
     const i = r.entityId ? L.issue(r.entityId) : null;
@@ -267,6 +278,20 @@ const DESCRIBE: Record<string, Describer> = {
   'wo.complete': (r, L) => S('Completed ', ...woRef(L, r.entityId), r.after?.hours != null ? ` at ${num(r.after.hours)} engine hours` : ''),
   'wo.close': (r, L) => S('Closed ', ...woRef(L, r.entityId)),
   'wo.cancel': (r, L) => S('Cancelled ', ...woRef(L, r.entityId)),
+
+  /* bus checks */
+  'buscheck.submit': (r, L) => {
+    const n = Number(r.after?.shortages ?? 0), p = Number(r.after?.problems ?? 0);
+    return S('Submitted a bus check on ', unitSeg(L, r.after?.vehicleId, r.after?.unit), n ? ` with ${n} ${n === 1 ? 'shortage' : 'shortages'}` : ' with no shortages', p ? ` and ${p} vehicle ${p === 1 ? 'problem' : 'problems'} sent to maintenance` : '');
+  },
+  'buschecklist.create': (r) => S(r.after?.starter ? 'Started the bus check requirements from the standard list' : `Created the bus check list '${r.after?.name ?? ''}'`, r.after?.items != null ? ` (${r.after.items} items)` : ''),
+  'buschecklist.duplicate': (r) => S(`Copied the bus check list '${r.before?.name ?? ''}' as '${r.after?.name ?? ''}'`),
+  'buschecklist.activate': (r) => S(`Made the bus check list '${r.after?.name ?? r.before?.name ?? ''}' active`),
+  'buschecklist.deactivate': (r) => S(`Made the bus check list '${r.after?.name ?? r.before?.name ?? ''}' inactive`),
+  'buschecklist.update': (r) => {
+    const names: Record<string, string> = { name: 'name', unitTypes: 'unit types', items: 'items', sections: 'sections' };
+    return withKeys([`Changed the bus check list '${r.before?.name ?? r.after?.name ?? ''}'`], keysChanged(r.before, r.after, Object.keys(names)).map((k) => names[k]));
+  },
 
   /* parts, mechanics, PM, setup */
   'part.create': (r) => S('Added part ', String(r.after?.number ?? ''), r.after?.description ? ` (${r.after.description})` : ''),
@@ -305,6 +330,8 @@ function subjectOf(r: ActivityLike, L: Lookup): Parts {
     case 'pm_program': return ['a PM program'];
     case 'role': return [roleLabel(id)];
     case 'settings': return ['settings'];
+    case 'bus_check': return ['a bus check'];
+    case 'bus_check_list': return ['a bus check list'];
     default: { const t = String(r.entityType || 'item').replace(/_/g, ' '); return [`${aOrAn(t)} ${t}`]; }
   }
 }
@@ -326,7 +353,7 @@ export const EMPTY = '—';
 const LABELS: Record<string, string> = {
   baseId: 'Base', fromBaseId: 'From base', toBaseId: 'To base', baseIds: 'Bases', engineHours: 'Engine hours', odometerKm: 'Odometer (km)', unit: 'Unit name', status: 'Status', statusReason: 'Reason', reason: 'Reason',
   mechanicId: 'Mechanic', priority: 'Priority', notes: 'Notes', name: 'Name', role: 'Role', tempUntil: 'Temporary until', onHand: 'On hand', unitCost: 'Unit cost', number: 'Number', description: 'Description',
-  approvalThresholdGYD: 'Approval threshold', currency: 'Currency', dueSoonHours: 'Due-soon window (hours)', dueSoonDays: 'Due-soon window (days)', dueSoonKm: 'Due-soon window (km)', comebackDays: 'Comeback window (days)',
+  approvalThresholdGYD: 'Approval threshold', currency: 'Currency', dueSoonHours: 'Due-soon window (hours)', dueSoonDays: 'Due-soon window (days)', dueSoonKm: 'Due-soon window (km)', comebackDays: 'Comeback window (days)', busCheckShifts: 'Bus check shift start times',
   'features.uploads': 'Photo and PDF uploads', uploads: 'Photo and PDF uploads', active: 'Active', hours: 'Engine hours', km: 'Kilometres', flagged: 'Flagged for review', email: 'Email', fits: 'Fits', reorderPoint: 'Reorder point',
   region: 'Region', minUnits: 'Minimum units', shop: 'Location', severity: 'How serious', title: 'Title', vehicleId: 'Unit', type: 'Type', how: 'How', received: 'Quantity received', cost: 'Cost per unit',
   scheduledFor: 'Scheduled for', vehicleHours: 'Unit hours', mechanicName: 'Mechanic', phone: 'Phone', size: 'Size', tasks: 'Tasks', rows: 'Records removed', qty: 'Quantity',

@@ -13,6 +13,8 @@ import './views-c';
 import './users-ui';
 import './roles-ui';
 import './activity-ui';
+import './buscheck-ui';
+import './buschecks-ui';
 import './agencies-ui';
 
 let queued = false;

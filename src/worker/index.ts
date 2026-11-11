@@ -13,6 +13,7 @@ import * as rules from './rules';
 import * as users from './users';
 import * as roles from './roles';
 import * as agencies from './agencies';
+import * as bc from './buscheck';
 import { CODE_RE, getAgency, normCode } from './agencies';
 import { forgotPassword, publicMe, setPasswordFromLink, tokenInfo } from './accounts';
 import { emailEnabled, lastSinkMail, sinkActive } from './mail';
@@ -211,6 +212,22 @@ api.put('/features', async (c) => c.json(await rules.saveFeatures(c.env, c.var.u
 api.put('/roles/permissions', async (c) => c.json(await roles.saveAllRolePermissions(c.env, c.var.user, await body(c))));
 api.put('/roles/:role/permissions', async (c) => c.json(await roles.saveRolePermissions(c.env, c.var.user, c.req.param('role'), await body(c))));
 api.post('/roles/:role/reset', async (c) => c.json(await roles.resetRolePermissions(c.env, c.var.user, c.req.param('role'))));
+// bus checks. Static paths before the :id ones.
+api.post('/bus-check-lists', async (c) => c.json(await bc.createList(c.env, c.var.user, await body(c))));
+api.post('/bus-check-lists/standard', async (c) => c.json(await bc.createStandardList(c.env, c.var.user)));
+api.put('/bus-check-lists/:id', async (c) => c.json(await bc.updateList(c.env, c.var.user, c.req.param('id'), await body(c))));
+api.post('/bus-check-lists/:id/duplicate', async (c) => c.json(await bc.duplicateList(c.env, c.var.user, c.req.param('id'))));
+api.post('/bus-checks', async (c) => c.json(await bc.submitCheck(c.env, c.var.user, await body(c))));
+api.get('/bus-checks/today', async (c) => c.json(await bc.todayReport(c.env, c.var.user, new URL(c.req.url).searchParams)));
+api.get('/bus-checks/equipment/export', async (c) => bc.equipmentCsv(c.env, c.var.user, new URL(c.req.url).searchParams));
+api.get('/bus-checks/equipment/known', async (c) => c.json(await bc.knownShortages(c.env, c.var.user, new URL(c.req.url).searchParams)));
+api.post('/bus-checks/equipment/restock', async (c) => c.json(await bc.restockShortages(c.env, c.var.user, await body(c))));
+api.get('/bus-checks/equipment', async (c) => c.json(await bc.equipmentList(c.env, c.var.user, new URL(c.req.url).searchParams)));
+api.get('/bus-checks/shortages/export', async (c) => bc.shortagesCsv(c.env, c.var.user, new URL(c.req.url).searchParams));
+api.get('/bus-checks/shortages', async (c) => c.json(await bc.shortagesReport(c.env, c.var.user, new URL(c.req.url).searchParams)));
+api.get('/bus-checks/export', async (c) => bc.checksCsv(c.env, c.var.user, new URL(c.req.url).searchParams));
+api.get('/bus-checks/:id', async (c) => c.json(await bc.getCheck(c.env, c.var.user, c.req.param('id'))));
+api.get('/bus-checks', async (c) => c.json(await bc.listChecks(c.env, c.var.user, new URL(c.req.url).searchParams)));
 api.put('/settings', async (c) => c.json(await rules.saveSettings(c.env, c.var.user, await body(c))));
 api.post('/admin/sample/remove', async (c) => c.json(await rules.removeSample(c.env, c.var.user)));
 

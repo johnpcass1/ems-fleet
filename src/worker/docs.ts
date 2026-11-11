@@ -14,7 +14,8 @@ export interface CollSpec {
   /** SELECT ... FROM <table> alias (no WHERE). */
   select: string;
   map: (r: any) => any;
-  /** Synced collections have a `seq` column. */
+  /** Extra condition (on X) that every browser sync adds: rows that fail it are never sent. Synced collections have a `seq` column. */
+  syncWhere?: string;
 }
 
 const ATT_SUB = (type: string) => `(SELECT json_group_array(json_object('assetId', a.id, 'name', a.name, 'type', a.content_type, 'size', a.size, 'at', a.created_at, 'by', a.created_by))
@@ -62,8 +63,11 @@ export const SPECS: Record<string, CollSpec> = {
   issues: {
     coll: 'issues', table: 'issues',
     select: `SELECT X.*, ${ATT_SUB('issue')} AS atts FROM issues X`,
+    // Equipment shortages found by bus checks are not vehicle problems: they are never sent to the browser as problems (the Equipment tab reads them from /api/bus-checks/equipment).
+    syncWhere: "COALESCE(X.source, '') <> 'bus_check'",
     map: (r) => {
       const d: any = { id: r.id, vehicleId: r.vehicle_id, title: r.title, description: r.description, severity: r.severity, status: r.status, reportedAt: r.reported_at, by: r.by_user, woId: r.wo_id, hours: r.hours, ...sampleCol(r) };
+      if (r.source) { d.source = r.source; d.busCheckId = r.bus_check_id; d.sourceRef = r.source_ref; }
       const a = j(r.atts, []);
       if (a.length) d.attachments = a;
       return d;
@@ -103,14 +107,19 @@ export const SPECS: Record<string, CollSpec> = {
     coll: 'settings', table: 'settings', select: 'SELECT * FROM settings X',
     map: (r) => ({ ...j(r.data, {}), id: r.id, ...sampleCol(r) }),
   },
-  // Names only: lets the browser show who did what. No emails, roles or hashes.
+  // Names only: lets the browser show who did what. No emails, roles or hashes. `active` lets the bus check crew pickers offer current staff only.
   people: {
-    coll: 'people', table: 'users', select: 'SELECT id, name, seq FROM users X',
-    map: (r) => ({ id: r.id, name: r.name }),
+    coll: 'people', table: 'users', select: 'SELECT id, name, active, seq FROM users X',
+    map: (r) => ({ id: r.id, name: r.name, active: !!r.active }),
+  },
+  // The bus check requirement lists (small). Submitted checks are NOT here: they are read through the paged /api/bus-checks calls.
+  busCheckLists: {
+    coll: 'busCheckLists', table: 'bus_check_lists', select: 'SELECT * FROM bus_check_lists X',
+    map: (r) => ({ id: r.id, name: r.name, unitTypes: j(r.unit_types, []), active: !!r.active, sections: j(r.sections, []), createdAt: r.created_at, updatedAt: r.updated_at }),
   },
 };
 
-export const FULL_COLLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'moves', 'issues', 'workOrders', 'parts', 'mechanics', 'settings', 'people'];
+export const FULL_COLLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'moves', 'issues', 'workOrders', 'parts', 'mechanics', 'settings', 'people', 'busCheckLists'];
 /** The dispatcher sees status, base, PM state and open work, but no costs, notes, parts or attachments. */
 export const DISPATCH_COLLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'moves', 'issues', 'workOrders', 'mechanics', 'settings', 'people'];
 
