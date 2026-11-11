@@ -11,7 +11,7 @@ describe('sync cursor', () => {
   it('the first call returns everything; the next with the cursor returns nothing when nothing changed', async () => {
     const a = await syncAll(fm);
     expect(a.full).toBe(true);
-    expect(Object.keys(a.data).sort()).toEqual(['bases', 'issues', 'mechanics', 'meterReadings', 'moves', 'people', 'parts', 'pmPrograms', 'settings', 'statusEvents', 'vehicles', 'workOrders'].sort());
+    expect(Object.keys(a.data).sort()).toEqual(['bases', 'busCheckLists', 'issues', 'mechanics', 'meterReadings', 'moves', 'people', 'parts', 'pmPrograms', 'settings', 'statusEvents', 'vehicles', 'workOrders'].sort());
     expect(a.cursor).toBeGreaterThan(0);
     const b = await syncAll(fm, a.cursor);
     expect(b).toMatchObject({ full: false, data: {}, deleted: {}, cursor: a.cursor });
@@ -82,7 +82,7 @@ describe('sync cursor', () => {
     const a = await syncAll(fm);
     const c = await api('POST', '/api/users', { cookie: fm, body: { email: 'new@x.gy', name: 'Nia New', role: 'crew', password: 'nia-start-pass-1' } });
     const b = await syncAll(fm, a.cursor);
-    expect(b.data.people).toEqual([{ id: c.json.id, name: 'Nia New' }]);
+    expect(b.data.people).toEqual([{ id: c.json.id, name: 'Nia New', active: true }]);
   });
 });
 

@@ -147,7 +147,7 @@ describe('dispatcher sees a reduced, read-only copy', () => {
   });
   it('sync shows names only for people (no emails, roles or hashes)', async () => {
     const s = await syncAll(cookies.viewer);
-    expect(Object.keys(s.data.people[0]).sort()).toEqual(['id', 'name']);
+    expect(Object.keys(s.data.people[0]).sort()).toEqual(['active', 'id', 'name']);
     expect(JSON.stringify(s)).not.toContain('pbkdf2');
   });
   it('viewers cannot write anything', async () => {

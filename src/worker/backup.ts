@@ -15,11 +15,13 @@ import { nowISO } from './http';
 // The backup covers the WHOLE database: every agency's rows (each row carries its agency_id) and the agencies table itself. It is for the super user only.
 export const BACKUP_TABLES = [
   'agencies', 'counter', 'tombstones', 'bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'settings', 'vehicles', 'vehicle_pm', 'meter_readings', 'status_events', 'moves',
-  'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log',
+  'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log', 'bus_check_lists', 'bus_checks',
 ];
 // account_tokens and auth_throttle are left out on purpose: they only hold hashes of short-lived links and counters, and a restored link would be dead anyway.
 export const KEEP_BACKUPS = 30;
 export const CHUNK_ROWS = 1000;
+/** Tables whose rows are large get smaller pieces, so one step stays small: a bus check row carries a copy of the list and all the answers (about 10 KB). */
+export const CHUNK_BY_TABLE: Record<string, number> = { bus_checks: 40, bus_check_lists: 100 };
 const FILE_RE = /^backups\/(\d{4}-\d{2}-\d{2})\.json\.gz$/;
 
 interface State { n: number; idx: number; lastRowid: number | null; rowsInTable: number; parts: { key: string; size: number }[]; createdAt: string; rows: number }
@@ -58,7 +60,8 @@ export async function backupStep(env: Env, opts: { now?: Date; force?: boolean }
   }
 
   const table = BACKUP_TABLES[st.idx];
-  const rows = await all<any>(env.DB, `SELECT rowid AS _r, * FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?`, st.lastRowid ?? -1, CHUNK_ROWS);
+  const chunkRows = CHUNK_BY_TABLE[table] ?? CHUNK_ROWS;
+  const rows = await all<any>(env.DB, `SELECT rowid AS _r, * FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?`, st.lastRowid ?? -1, chunkRows);
   let text = '';
   if (st.n === 0) text += `{"app":"gema-fleet","version":1,"createdAt":${JSON.stringify(st.createdAt)},"tables":{`;
   if (st.lastRowid === null && st.rowsInTable === 0) text += (st.idx > 0 ? ',' : '') + JSON.stringify(table) + ':[';
@@ -67,7 +70,7 @@ export async function backupStep(env: Env, opts: { now?: Date; force?: boolean }
     const { _r, ...rest } = r;
     text += (k++ > 0 ? ',' : '') + JSON.stringify(rest);
   }
-  const tableDone = rows.length < CHUNK_ROWS;
+  const tableDone = rows.length < chunkRows;
   if (tableDone) text += ']';
   const last = st.idx === BACKUP_TABLES.length - 1 && tableDone;
   if (last) text += '}}';

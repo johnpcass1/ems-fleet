@@ -100,7 +100,7 @@ describe('category mapping', () => {
     expect(categoryOf('attachment.add', 'vehicle')).toBe('other');
   });
   it('has nine categories, every rule points at one, and prefixes are safe for LIKE', () => {
-    expect(ACTIVITY_CATEGORIES).toHaveLength(9);
+    expect(ACTIVITY_CATEGORIES).toHaveLength(10);
     for (const r of CATEGORY_RULES) { expect(CATEGORY_KEYS).toContain(r.category); expect(r.prefix).toMatch(/^[a-z]+\.$/); }
   });
   it('every action the Worker writes has a category (so the Type filter can find it)', () => {

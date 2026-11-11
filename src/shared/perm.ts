@@ -31,6 +31,11 @@ export const PERM: Record<string, Role[]> = {
   upload: [...FM_SUP, 'mechanic', 'crew'],
   /** The Reports screen (a screen setting: the figures come from data the person can already read). */
   viewReports: ['system_admin', 'fleet_manager', 'base_supervisor', 'mechanic', 'crew', 'viewer'],
+  /** Bus checks (start-of-shift inspection). Doing one is limited to units the person may act on; reports are limited to a supervisor's own bases. */
+  busCheck: [...FM_SUP, 'crew'],
+  busCheckReports: FM_SUP,
+  /** Change the bus check requirement lists (what is checked, and for which unit types). */
+  busCheckEdit: FM,
 };
 export const PERM_KEYS = Object.keys(PERM);
 /** Keys that only the super user can grant, to a role or to a person. */
@@ -48,6 +53,7 @@ export const PERM_GROUPS: { title: string; items: [string, string][] }[] = [
   { title: 'Problems', items: [['report', 'Report problems'], ['issues', 'Manage problems (create work orders, dismiss)'], ['upload', 'Upload photos and PDFs'], ['delAttach', 'Remove photos and PDFs']] },
   { title: 'Work orders', items: [['createWO', 'Create work orders'], ['workWO', 'Work on work orders'], ['approve', 'Approve costly work orders'], ['closeWO', 'Close work orders'], ['cancelWO', 'Cancel work orders']] },
   { title: 'Parts and mechanics', items: [['parts', 'Manage parts and stock'], ['mechanics', 'Manage the mechanics list']] },
+  { title: 'Bus checks', items: [['busCheck', 'Do bus checks'], ['busCheckReports', 'View bus check reports'], ['busCheckEdit', 'Edit bus check requirements']] },
   { title: 'Admin', items: [['setup', 'Change setup (bases, PM programs, settings)'], ['users', 'Manage people'], ['viewReports', 'View reports']] },
 ];
 
@@ -158,6 +164,18 @@ export function vehicleInScope(actor: Actor, key: string, baseId: string | null 
   if (actor.role === 'mechanic' && (key === 'reading' || key === 'report')) return true;
   // crew, and any other role that was given a permission by hand: their bases, or every unit if they have no bases set
   return actor.baseIds.length === 0 || (!!baseId && actor.baseIds.includes(baseId));
+}
+
+/**
+ * The bases whose units this actor's `key` rights reach, decided exactly as vehicleInScope decides one unit:
+ * null = every unit; an array = only units at those bases (an empty array = no unit at all). Used where a list is read from the database
+ * (bus check reports), so the query can filter instead of checking rows one by one.
+ */
+export function baseScope(actor: Actor, key: string): string[] | null {
+  if (actor.isSuper || actor.role === 'system_admin' || actor.role === 'fleet_manager') return null;
+  if (actor.role === 'base_supervisor') return [...actor.baseIds];
+  if (actor.role === 'mechanic' && (key === 'reading' || key === 'report')) return null;
+  return actor.baseIds.length === 0 ? null : [...actor.baseIds];
 }
 
 /** Can this actor do `key` on a vehicle currently at `baseId`? */

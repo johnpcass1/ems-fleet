@@ -9,11 +9,12 @@ import { bad, forbidden, notFound, conflict, uid, zId, zDate, zText, parse } fro
 import { loadDoc } from './docs';
 import { canOnVehicle, canWorkWO, can, cleanRolePerms, type Actor, type RolePerms } from '../shared/perm';
 import { CURRENCY_CODES, DEFAULT_CURRENCY, type CurrencyCode } from '../shared/constants';
+import { DEFAULT_SHIFTS, parseShiftTimes } from '../shared/buscheck';
 import { checkReading, gyDate, pmTaskStatus, woTotal, needsApproval, weightedAvgCost } from '../shared/pure';
 import { HOLD, REPAIR_CODES, WO_TYPES, PRIO, STATUS, isAvail, isOos, LINE_KINDS } from '../shared/constants';
 
 /* ---------- settings ---------- */
-export const DEFAULT_SETTINGS = { currency: DEFAULT_CURRENCY as CurrencyCode, approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false }, rolePerms: {} as RolePerms };
+export const DEFAULT_SETTINGS = { currency: DEFAULT_CURRENCY as CurrencyCode, busCheckShifts: DEFAULT_SHIFTS, approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false }, rolePerms: {} as RolePerms };
 /** The agency's settings record. There is one row per agency and its id is the agency code. */
 export async function getSettings(db: D1Database, agency: string) {
   const r = await first<any>(db, 'SELECT data FROM settings WHERE id = ? AND agency_id = ?', agency, agency);
@@ -29,15 +30,15 @@ export async function getSettings(db: D1Database, agency: string) {
 const todayGY = () => gyDate(Date.now());
 
 /* ---------- small loaders ---------- */
-async function vehicleRow(db: D1Database, agency: string, id: string) {
+export async function vehicleRow(db: D1Database, agency: string, id: string) {
   const v = await agencyRow<any>(db, 'vehicles', agency, id); // another agency's unit is simply not found
   if (!v) throw notFound('That unit does not exist.');
   return v;
 }
-const vSnap = (v: any) => ({ id: v.id, unit: v.unit, status: v.status, statusReason: v.status_reason, baseId: v.base_id, engineHours: v.engine_hours, odometerKm: v.odometer_km });
+export const vSnap = (v: any) => ({ id: v.id, unit: v.unit, status: v.status, statusReason: v.status_reason, baseId: v.base_id, engineHours: v.engine_hours, odometerKm: v.odometer_km });
 
 /* ---------- status ---------- */
-function writeStatus(tx: Tx, v: any, to: string, reason: string, expectedReturn: string | null, woId: string | null) {
+export function writeStatus(tx: Tx, v: any, to: string, reason: string, expectedReturn: string | null, woId: string | null) {
   const at = tx.at;
   tx.run(
     `INSERT INTO status_events (id, vehicle_id, from_status, to_status, reason, at, by_user, wo_id, sample, seq, created_at, updated_at, agency_id) VALUES (?,?,?,?,?,?,?,?,0,${SEQ},?,?,?)`,
@@ -67,10 +68,12 @@ export async function changeStatus(env: Env, actor: Actor, vehicleId: string, bo
 }
 
 /* ---------- meter readings ---------- */
-const readingIn = z.object({ hours: z.number().finite().min(0).max(10_000_000), km: z.number().finite().min(0).max(100_000_000).nullish(), accept: z.boolean().optional(), source: z.enum(['manual', 'inspection']).optional() });
+/** The limits on a meter reading. Impossible values (negative, absurdly large) are refused here; suspicious ones are flagged by addReading. Bus checks use the same pieces. */
+export const readingFields = { hours: z.number().finite().min(0).max(10_000_000), km: z.number().finite().min(0).max(100_000_000) };
+const readingIn = z.object({ hours: readingFields.hours, km: readingFields.km.nullish(), accept: z.boolean().optional(), source: z.enum(['manual', 'inspection']).optional() });
 
 /** Adds statements for one reading. Suspicious readings are saved flagged and do NOT change the vehicle until a supervisor accepts them. */
-async function addReading(tx: Tx, db: D1Database, v: any, hours: number, km: number | null, source: string, accept: boolean) {
+export async function addReading(tx: Tx, db: D1Database, v: any, hours: number, km: number | null, source: string, accept: boolean) {
   const last = await first<any>(db, 'SELECT hours, at FROM meter_readings WHERE agency_id = ? AND vehicle_id = ? AND flagged = 0 ORDER BY at DESC LIMIT 1', tx.agency, v.id);
   const warn = checkReading(v.engine_hours || 0, last, hours, Date.now(), v.odometer_km, km);
   const flagged = warn.length > 0 && !accept;
@@ -606,10 +609,16 @@ const settingsIn = z.object({
   currency: z.enum(CURRENCY_CODES).optional(),
   approvalThresholdGYD: z.number().finite().min(0).max(1e12), dueSoonHours: z.number().finite().min(0).max(1e6), dueSoonDays: z.number().finite().min(0).max(1e5),
   comebackDays: z.number().finite().min(0).max(1e5),
+  busCheckShifts: z.string().max(100).optional(),
 });
 export async function saveSettings(env: Env, actor: Actor, body: unknown) {
   if (!can(actor, 'setup')) throw forbidden();
   const i = parse(settingsIn, body);
+  if (i.busCheckShifts !== undefined) {
+    const sh = parseShiftTimes(i.busCheckShifts);
+    if (!sh.ok) throw bad(sh.error);
+    i.busCheckShifts = sh.text; // stored tidy: "07:00, 19:00"
+  }
   const old = await first<any>(env.DB, 'SELECT data, sample FROM settings WHERE id = ? AND agency_id = ?', actor.agencyId, actor.agencyId);
   let merged: any = i;
   try { merged = { ...(old ? JSON.parse(old.data) : {}), ...i }; } catch { /* ignore */ }
@@ -674,6 +683,8 @@ export async function removeSample(env: Env, actor: Actor) {
     total += cnt?.n || 0;
     tx.run(`INSERT OR REPLACE INTO tombstones (coll, id, seq, agency_id) SELECT '${coll}', id, ${SEQ}, ? FROM ${table} WHERE ${cond}`, ag, ...ps);
   }
+  // Submitted bus checks of a sample unit go with it (they are not synced, so there is no tombstone to write).
+  tx.run('DELETE FROM bus_checks WHERE agency_id = ? AND vehicle_id IN (SELECT id FROM vehicles WHERE agency_id = ? AND sample = 1)', ag, ag);
   tx.run(`DELETE FROM attachments WHERE agency_id = ? AND id IN (${atts.map(() => '?').join(',') || "''"})`, ag, ...atts.map((a) => a.id));
   for (const [, table] of REMOVE) { const [cond, ps] = w(table); tx.run(`DELETE FROM ${table} WHERE ${cond}`, ...ps); }
   tx.audit('sample.remove', 'sample', null, null, { rows: total });

@@ -12,7 +12,7 @@ const json = JSON.parse((raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : 
 if (json.app !== 'gema-fleet' || !json.tables) { console.error('That does not look like a fleet backup.'); process.exit(1); }
 
 const ORDER = ['agencies', 'counter', 'tombstones', 'bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'settings', 'vehicles', 'vehicle_pm', 'meter_readings', 'status_events', 'moves',
-  'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log'];
+  'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log', 'bus_check_lists', 'bus_checks'];
 // Every agency's data is in the one backup, so a restore puts back ALL agencies. A backup made before agencies existed has no agencies table:
 // its rows are all the first agency, GEMA (the columns' default), and the single settings row 'main' is now keyed by the agency code.
 if (!json.tables.agencies) {
