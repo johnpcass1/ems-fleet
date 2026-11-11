@@ -57,7 +57,8 @@ describe('answers', () => {
   it('rejects wrong or impossible answers', () => {
     expect(answerError(count, { status: 'short', qty: 6 })).toMatch(/fewer than 6/);
     expect(answerError(count, { status: 'short', qty: 2.5 })).toMatch(/whole number/);
-    expect(answerError(count, { status: 'short' })).toMatch(/whole number/);
+    expect(answerError(count, { status: 'short' })).toBeNull(); // Short on its own is enough; how many is optional
+    expect(shortageOf(count, { status: 'short' }, T)?.title).toMatch(/short \(need 6/);
     expect(answerError(count, { status: 'pass' })).toBe('Answer OK or Short.');
     expect(answerError(check, { status: 'ok' })).toBe('Answer Pass or Fail.');
     expect(answerError(num, { value: -1 })).not.toBeNull();

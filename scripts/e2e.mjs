@@ -777,16 +777,25 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     const secIds = await p.$$eval('[data-act="bc-allok"]', (b) => b.map((x) => x.dataset.id));
     if (secIds.length !== 8) throw new Error('expected 8 sections, got ' + secIds.length);
     for (const id of secIds) { await p.click(`[id="bca-${id}"]`); await p.waitForTimeout(60); }
-    for (const el of await p.locator('input[data-bc="value"]').all()) await el.fill('1500');
+    // the readings and dates are still empty: sending marks every one of them in red
+    const nInputs = await p.locator('input[data-bc="value"], input[data-bc="date"]').count();
+    await p.click('#bcSubmit'); await p.waitForFunction(() => /marked in red/.test(document.querySelector('#bcErr')?.innerText || ''));
+    await p.waitForFunction((n) => document.querySelectorAll('.bci.missing').length === n, nInputs);
+    if (await p.locator('#cfYes').count()) throw new Error('confirmation shown with items missing');
+    const vals = await p.locator('input[data-bc="value"]').all();
+    for (const el of vals) await el.fill('1500');
+    await vals[vals.length - 1].fill('800'); await vals[vals.length - 1].press('Tab'); // low oxygen: a shortage, still sendable
     for (const el of await p.locator('input[data-bc="date"]').all()) await el.fill('2099-12-31');
-    // one Short
+    await p.waitForFunction(() => !document.querySelector('.bci.missing'));
+    state.psi = await p.evaluate(() => [...document.querySelectorAll('input[data-bc="value"]')].pop().closest('li').querySelector('.bctxt').textContent);
+    // one Short, without saying how many
     state.item = await p.evaluate(() => document.querySelector('[data-v="short"]').closest('li').querySelector('.bctxt').textContent);
     await p.locator('[data-v="short"]').first().click();
-    await p.locator('input[data-bc="qty"]').first().fill('0');
+    await p.waitForSelector('input[data-bc="qty"]');
     await p.waitForTimeout(100);
     const prog = await p.locator('#bcProg').innerText();
     if (!/^(\d+) of \1 answered$/.test(prog)) throw new Error('progress is ' + prog);
-    if (!/^1 shortage$/.test(await p.locator('#bcShort').innerText())) throw new Error('shortage counter is ' + await p.locator('#bcShort').innerText());
+    if (!/^2 shortages$/.test(await p.locator('#bcShort').innerText())) throw new Error('shortage counter is ' + await p.locator('#bcShort').innerText());
     // a problem the crew reports themselves
     await p.click('#bcAddProblem'); await p.fill('#bc-pt-0', 'Cracked mirror (' + tag + ')');
     await p.waitForFunction((t) => document.querySelector('#bc-pt-0')?.value === t, 'Cracked mirror (' + tag + ')'); await p.evaluate(() => document.querySelector('[data-v="short"]').scrollIntoView({ block: 'center' }));
@@ -798,11 +807,12 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.evaluate(() => document.querySelector('#bcSubmit').scrollIntoView({ block: 'center' }));
     await shot(p, '20-bus-check-submit'); await noOverflow(p);
     await p.click('#bcSubmit'); await p.waitForSelector('#cfYes');
-    const conf = await p.locator('#cfM').innerText();
-    if (!/1 shortage/.test(conf) || !/1 problem you reported/.test(conf)) throw new Error('confirmation text: ' + conf);
+    const conf = await p.locator('#confirmRoot').innerText();
+    for (const t of ['3 issues', state.item + ' short (need', state.psi + ' 800', 'Problem reported: Cracked mirror', 'Send with 3 issues']) if (!conf.includes(t)) throw new Error('confirmation lacks "' + t + '": ' + conf);
+    await shot(p, '20-bus-check-confirm');
     await p.click('#cfYes'); await p.waitForSelector('#bcDone');
     const done = await p.locator('#bcDone').innerText();
-    if (!/1 shortage found/.test(done)) throw new Error('done text: ' + done);
+    if (!/2 shortages found/.test(done)) throw new Error('done text: ' + done);
     // the unsent draft is gone
     const left = await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gema-buscheck-draft')));
     if (left.length) throw new Error('draft left behind: ' + left.join());
@@ -816,7 +826,7 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.waitForSelector('.bccell');
     const row = p.locator('tr', { has: p.locator('th', { hasText: unitName }) });
     // the tab reloads its numbers when opened; wait for the fresh ones
-    await row.locator('.bccell', { hasText: '1 short' }).first().waitFor({ timeout: 10000 }).catch(() => { throw new Error('no checked cell with 1 short for ' + unitName); });
+    await row.locator('.bccell', { hasText: '2 short' }).first().waitFor({ timeout: 10000 }).catch(() => { throw new Error('no checked cell with 2 short for ' + unitName); });
     if (!(await p.locator('#bcKpis').innerText()).includes('Checks done')) throw new Error('no counts');
     await shot(p, '20-bus-checks-today'); await noOverflow(p);
     await row.locator('.bccell').first().click();
@@ -850,7 +860,7 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.locator('tr', { has: p.locator('th', { hasText: unitName }) }).locator('button[data-act="open-vehicle"]').click();
     await p.waitForSelector('#vt-buschecks'); await p.click('#vt-buschecks');
     await p.waitForSelector('#bcuTable');
-    if (!(await p.locator('#bcuTable td .badge', { hasText: '1' }).count())) throw new Error('shortage count missing in the unit tab');
+    if (!(await p.locator('#bcuTable td .badge', { hasText: '2' }).count())) throw new Error('shortage count missing in the unit tab');
   }, tag);
 
   await check(crew.page, 'bus checks: crew and manager have no console errors', async () => {

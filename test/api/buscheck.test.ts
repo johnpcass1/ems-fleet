@@ -602,3 +602,29 @@ describe('agency isolation (both directions)', () => {
     expect(await row("SELECT agency_id FROM audit_log WHERE action = 'buscheck.submit'")).toEqual({ agency_id: 'BB' });
   });
 });
+
+describe('sending with shortages', () => {
+  it('Short without a count, low oxygen pressure and an expired date are all accepted and each becomes a problem', async () => {
+    const answers = ok(sections);
+    const cnt = sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'count');
+    const psi = sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'number');
+    const dt = sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'date');
+    answers[cnt.id] = { status: 'short' }; // how many is left blank
+    answers[psi.id] = { value: 800 };
+    answers[dt.id] = { date: '2020-01-01' };
+    const r = must(await submit(crew.cookie, await payload('v-01', { answers })), 'send');
+    expect(r.shortages).toBe(3);
+    const titles = (await rows<any>("SELECT title FROM issues WHERE vehicle_id = 'v-01' AND source = 'bus_check'")).map((x) => x.title);
+    expect(titles).toContain(`Bus check: ${cnt.name} short (need ${cnt.min}${cnt.unit ? ' ' + cnt.unit : ''})`);
+    expect(titles.some((t) => t.includes(psi.name) && t.includes('800'))).toBe(true);
+    expect(titles.some((t) => t.includes(dt.name) && t.includes('expired'))).toBe(true);
+    const stored = JSON.parse((await row<any>('SELECT answers FROM bus_checks WHERE id = ?', r.id)).answers);
+    expect(stored[cnt.id]).toEqual({ status: 'short' });
+  });
+  it('a count that is not a whole number below the minimum is still refused', async () => {
+    const answers = ok(sections);
+    const cnt = sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'count');
+    answers[cnt.id] = { status: 'short', qty: cnt.min };
+    expect((await submit(crew.cookie, await payload('v-01', { answers }))).status).toBe(400);
+  });
+});

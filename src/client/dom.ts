@@ -25,11 +25,11 @@ export function closeDrawer() {
 }
 
 let cfResolve: ((v: boolean) => void) | null = null;
-export function confirmUI({ title, message, label = 'Confirm', danger = false }: { title: string; message: string; label?: string; danger?: boolean }): Promise<boolean> {
+export function confirmUI({ title, message, label = 'Confirm', danger = false, list, after }: { title: string; message: string; label?: string; danger?: boolean; list?: string[]; after?: string }): Promise<boolean> {
   return new Promise((res) => {
     cfResolve = res;
     $('#confirmRoot').innerHTML = `<div class="scrim hi"></div><div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="cfT" aria-describedby="cfM">
-      <h2 id="cfT">${esc(title)}</h2><p id="cfM" class="muted" style="margin-top:8px">${esc(message)}</p>
+      <h2 id="cfT">${esc(title)}</h2><p id="cfM" class="muted" style="margin-top:8px">${esc(message)}</p>${list && list.length ? `<ul class="cflist" id="cfList">${list.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${after ? `<p class="muted small" style="margin-top:8px">${esc(after)}</p>` : ''}
       <div class="dfoot"><button class="btn" id="cfNo" type="button" data-act="cf-no">Cancel</button><button class="btn ${danger ? 'danger solid' : 'primary'}" id="cfYes" type="button" data-act="cf-yes">${esc(label)}</button></div></div>`;
     $('#cfNo').focus();
   });

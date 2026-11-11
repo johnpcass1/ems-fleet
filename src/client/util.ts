@@ -34,9 +34,12 @@ export const fmtSize = (n: any) => {
 /** An error the person should see as-is. */
 export const uerr = (m: string) => Object.assign(new Error(m), { user: true });
 
-export function toast(msg: string, bad?: boolean) {
+export function toast(msg: string, bad?: boolean, group?: string) {
+  // the same note again replaces the one on screen instead of stacking up
+  for (const old of [...$('#toasts').children] as HTMLElement[]) if (old.textContent === msg || (old.dataset.group && old.dataset.group === group)) old.remove();
   const el = document.createElement('div');
   el.className = 'toast' + (bad ? ' bad' : '');
+  if (group) el.dataset.group = group;
   el.textContent = msg;
   if (bad) el.setAttribute('role', 'alert');
   $('#toasts').appendChild(el);

@@ -5,7 +5,7 @@
  * check is kept in this browser only, per unit, so a lost signal or a closed tab does not lose the work.
  */
 import { SEV } from '../shared/constants';
-import { ATTESTATION, checkAnswers, allOkFill, answerError, flatItems, isRequired, pickList, progress, type BusAnswer, type BusItem, type BusSection } from '../shared/buscheck';
+import { ATTESTATION, checkAnswers, allOkFill, answerError, flatItems, isRequired, pickList, progress, shortageOf, type BusAnswer, type BusItem, type BusSection } from '../shared/buscheck';
 import { checkReading } from '../shared/pure';
 import { D, LST, S, can, scheduleRender, vehiclesSorted, basesSorted, baseName, readingsOf } from './state';
 import { $, esc, num, toast, selHtml, field, inp, nv, todayStr, uerr } from './util';
@@ -28,13 +28,14 @@ const st = {
   answers: {} as Record<string, BusAnswer>, problems: [] as Problem[], attested: false,
   closed: new Set<string>(), // sections the person collapsed
   ref: '', sending: false, done: null as any, err: '', restored: false, picked: false,
+  showMissing: false, // after a Send with unanswered items: mark every one of them in red
 };
 const newRef = () => { try { return crypto.randomUUID(); } catch { return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); } };
 
 /** Forget everything (sign-out, another agency). */
 export function resetBusCheck() {
   st.owner = ''; st.vehicleId = ''; st.baseId = ''; st.emt1 = blankPerson(); st.emt2 = blankPerson(); st.driver = blankPerson(); st.km = ''; st.hours = '';
-  st.answers = {}; st.problems = []; st.attested = false; st.closed = new Set(); st.ref = ''; st.sending = false; st.done = null; st.err = ''; st.restored = false; st.picked = false;
+  st.answers = {}; st.problems = []; st.attested = false; st.closed = new Set(); st.ref = ''; st.sending = false; st.done = null; st.err = ''; st.restored = false; st.picked = false; st.showMissing = false;
 }
 
 /* ---------- the unsent draft (this browser only) ---------- */
@@ -113,7 +114,7 @@ function itemControl(it: BusItem) {
   switch (it.kind) {
     case 'count':
       return `${optBtns(it, [['ok', 'OK', 'ok'], ['short', 'Short', 'bad']])}${a.status === 'short' ? `<div class="bcmore">
-        <label class="f"><span class="l">How many are there?</span><input id="bc-q-${id}" name="bc-q-${id}" type="number" inputmode="numeric" min="0" max="${Math.max(0, (it.min ?? 1) - 1)}" step="1" value="${esc(a.qty ?? '')}" data-bc="qty" data-item="${id}"><span class="hint">Needs ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}. Enter a number below that.</span></label>
+        <label class="f"><span class="l">How many are there?</span><input id="bc-q-${id}" name="bc-q-${id}" type="number" inputmode="numeric" min="0" max="${Math.max(0, (it.min ?? 1) - 1)}" step="1" value="${esc(a.qty ?? '')}" data-bc="qty" data-item="${id}"><span class="hint">Needs ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}. Enter how many are there, or leave it blank if you are not sure.</span></label>
         <label class="f"><span class="l">Note (optional)</span><input id="bc-n-${id}" name="bc-n-${id}" type="text" maxlength="200" value="${esc(a.note ?? '')}" data-bc="note" data-item="${id}"></label></div>` : ''}`;
     case 'check':
       return `${optBtns(it, [['pass', 'Pass', 'ok'], ['fail', 'Fail', 'bad']])}${a.status === 'fail' ? `<div class="bcmore"><label class="f"><span class="l">What is wrong? (optional)</span><input id="bc-n-${id}" name="bc-n-${id}" type="text" maxlength="200" value="${esc(a.note ?? '')}" data-bc="note" data-item="${id}"></label></div>` : ''}`;
@@ -127,17 +128,20 @@ function itemControl(it: BusItem) {
 }
 function itemHtml(it: BusItem) {
   const a = st.answers[it.id];
-  const bad = a && ((it.kind === 'count' && a.status === 'short') || (it.kind === 'check' && a.status === 'fail'));
-  const err = a && !answered(it, a) && (a.status != null || a.value != null || a.date != null) ? answerError(it, a) : null;
-  return `<li class="bci${bad ? ' bad' : ''}${answered(it, a) ? ' done' : ''}" id="bci-${esc(it.id)}">
+  const ok = answered(it, a);
+  const sh = ok ? shortageOf(it, a, todayStr()) : null;
+  const err = a && !ok && (a.status != null || a.value != null || a.date != null) ? answerError(it, a) : null;
+  const missing = st.showMissing && isRequired(it) && !ok && !err;
+  const shNote = sh && (it.kind === 'number' || it.kind === 'date') ? (it.kind === 'number' ? `Below the minimum of ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}. This will be reported to maintenance.` : 'Expired. This will be reported to maintenance.') : '';
+  return `<li class="bci${sh ? ' bad' : ''}${ok ? ' done' : ''}${missing ? ' missing' : ''}" id="bci-${esc(it.id)}">
     <div class="bcname">${it.code ? `<span class="bccode">${esc(it.code)}</span>` : ''}<span class="bctxt">${esc(it.name)}</span>${isRequired(it) ? '' : ' <span class="tiny muted">optional</span>'}
       ${it.kind === 'count' ? `<span class="tiny muted bcmin">Need ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}</span>` : ''}${it.note ? `<span class="tiny muted bcnote">${esc(it.note)}</span>` : ''}</div>
-    <div class="bcctl">${itemControl(it)}</div>${err ? `<div class="tiny bcerr" role="alert">${esc(err)}</div>` : ''}</li>`;
+    <div class="bcctl">${itemControl(it)}</div>${err ? `<div class="tiny bcerr" role="alert">${esc(err)}</div>` : ''}${shNote ? `<div class="tiny bcerr">${shNote}</div>` : ''}${missing ? `<div class="tiny bcerr bcmiss">Not answered yet${it.kind === 'number' ? ': enter the reading' : it.kind === 'date' ? ': enter the date' : ''}.</div>` : ''}</li>`;
 }
 function sectionHtml(s: BusSection) {
   const p = progress([s], st.answers), open = !st.closed.has(s.id), all = p.total > 0 && p.done === p.total;
   return `<section class="panel bcsec" id="bcs-${esc(s.id)}"><div class="ph bcsh"><button type="button" class="bctoggle" data-act="bc-toggle" data-id="${esc(s.id)}" id="bct-${esc(s.id)}" aria-expanded="${open}" aria-controls="bcl-${esc(s.id)}">${icon(open ? 'down' : 'right')}<h2>${esc(s.title)}</h2></button>
-    <span class="bccount${all ? ' ok' : ''}" id="bcp-${esc(s.id)}">${p.done} of ${p.total}</span>
+    <span class="bccount${all ? ' ok' : st.showMissing ? ' bad' : ''}" id="bcp-${esc(s.id)}">${st.showMissing && !all ? `${p.total - p.done} not answered` : `${p.done} of ${p.total}`}</span>
     <button type="button" class="btn sm" data-act="bc-allok" data-id="${esc(s.id)}" id="bca-${esc(s.id)}">${icon('check')}All OK in this section</button></div>
     ${open ? `<ul class="bclist" id="bcl-${esc(s.id)}">${s.items.map(itemHtml).join('')}</ul>` : ''}</section>`;
 }
@@ -232,7 +236,7 @@ export const busCheckActs: Record<string, any> = {
     const fill = allOkFill(s, st.answers);
     st.answers = { ...st.answers, ...fill };
     const left = s.items.filter((it) => isRequired(it) && !answered(it, st.answers[it.id])).length;
-    toast(left ? `Section marked OK. ${left} ${left === 1 ? 'item still needs' : 'items still need'} a reading or a date.` : 'Section marked OK');
+    toast(left ? `Section marked OK. ${left} ${left === 1 ? 'item still needs' : 'items still need'} a reading or a date.` : 'Section marked OK', false, 'bc-allok');
     keep(); scheduleRender();
   },
   'bc-add-problem': () => { st.problems.push({ title: '', description: '', severity: 'minor' }); keep(); scheduleRender(); setTimeout(() => { const e = document.getElementById(`bc-pt-${st.problems.length - 1}`); if (e) e.focus(); }, 60); },
@@ -268,19 +272,25 @@ async function submit() {
   const bad = rep.errors[0];
   if (bad) { const sec = sc.find((s) => s.items.some((i) => i.id === bad.itemId)); if (sec) st.closed.delete(sec.id); return fail(`${bad.name}: ${bad.error}`, 'bci-' + bad.itemId); }
   if (rep.unanswered.length) {
-    const first = rep.unanswered[0], sec = sc.find((s) => s.items.some((i) => i.id === first));
-    if (sec) st.closed.delete(sec.id);
-    const nm = itemOf(first)?.name || '';
-    return fail(`${rep.unanswered.length} ${rep.unanswered.length === 1 ? 'item is' : 'items are'} not answered yet. The first is "${nm}".`, 'bci-' + first);
+    // mark every missing item in red and open every section that has one
+    st.showMissing = true;
+    for (const s of sc) if (s.items.some((i) => rep.unanswered.includes(i.id))) st.closed.delete(s.id);
+    const names = rep.unanswered.map((id) => itemOf(id)?.name || '').filter(Boolean);
+    const shown = names.slice(0, 3).map((n) => `"${n}"`).join(', ') + (names.length > 3 ? ` and ${names.length - 3} more` : '');
+    return fail(`${rep.unanswered.length} ${rep.unanswered.length === 1 ? 'item is' : 'items are'} not answered yet (marked in red): ${shown}.`, 'bci-' + rep.unanswered[0]);
   }
+  st.showMissing = false;
   for (let i = 0; i < st.problems.length; i++) if (!st.problems[i].title.trim()) return fail('Say what is wrong with problem ' + (i + 1) + '.', `bc-pt-${i}`);
   if (!st.attested) return fail('Tick the box to confirm the check.', 'bc-attest');
   // a reading that looks wrong: the same test as Log engine hours
   const rs = readingsOf(v.id).filter((r: any) => !r.flagged), warn = checkReading(v.engineHours || 0, rs[rs.length - 1], hours, Date.now(), v.odometerKm, km);
-  const nShort = rep.shortages.length, nProb = st.problems.length;
-  const parts = [`${nShort} ${nShort === 1 ? 'shortage' : 'shortages'}${nShort ? ' will be sent to maintenance as problems (any already open are added to)' : ''}`, `${nProb} ${nProb === 1 ? 'problem you reported' : 'problems you reported'}`];
-  const message = `${parts.join(' and ')}. A sent check cannot be changed.${warn.length ? ' Check the reading: ' + warn.join(' ') + ' It will be saved flagged for a supervisor and the unit\'s hours will not change.' : ''}`;
-  if (!(await confirmUI({ title: `Send the bus check for ${v.unit}?`, message, label: 'Send bus check' }))) return;
+  // Shortages never stop a check being sent; the crew sees every issue by name before sending.
+  const issues = [...rep.shortages.map((s) => s.title.replace(/^Bus check: /, '')), ...st.problems.map((p) => `Problem reported: ${p.title.trim()}`)];
+  const n = issues.length;
+  const message = n ? `This check has ${n} ${n === 1 ? 'issue' : 'issues'}. ${n === 1 ? 'It' : 'Each one'} will be sent to maintenance as a problem (an open problem for the same item is added to instead):` : 'Everything was checked and nothing is short.';
+  scheduleRender(); // clear an earlier error box before the dialog opens
+  const after = `A sent check cannot be changed.${warn.length ? ' Check the reading: ' + warn.join(' ') + ' It will be saved flagged for a supervisor and the unit\'s hours will not change.' : ''}`;
+  if (!(await confirmUI({ title: n ? `${v.unit}: ${n} ${n === 1 ? 'issue' : 'issues'} found` : `Send the bus check for ${v.unit}?`, message, list: issues, after, label: n ? `Send with ${n} ${n === 1 ? 'issue' : 'issues'}` : 'Send bus check' }))) return;
   st.sending = true; scheduleRender();
   try {
     const r = await api('POST', '/bus-checks', {
@@ -321,7 +331,7 @@ document.addEventListener('input', (e: any) => {
     default: return;
   }
   keep(); refreshBar();
-  if (item) { const li = document.getElementById('bci-' + item), it = itemOf(item); if (li && it) li.classList.toggle('done', answered(it, st.answers[item])); }
+  if (item) { const li = document.getElementById('bci-' + item), it = itemOf(item); if (li && it) { const ok = answered(it, st.answers[item]); li.classList.toggle('done', ok); if (ok) { li.classList.remove('missing'); li.querySelector('.bcmiss')?.remove(); } } }
 });
 document.addEventListener('change', (e: any) => {
   const el = e.target, k = el?.dataset?.bc;

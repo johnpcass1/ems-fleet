@@ -94,7 +94,9 @@ export function shortageOf(it: BusItem, a: BusAnswer | undefined, today: string,
     case 'count': {
       if (a.status !== 'short') return null;
       const u = it.unit ? ` ${it.unit}` : '';
-      return { ...base, severity: 'minor', title: cut(`Bus check: ${it.name} short (${num(a.qty ?? 0)} of ${num(it.min ?? 0)}${u})`), found: `Found ${num(a.qty ?? 0)}${u}, the minimum is ${num(it.min ?? 0)}${u}${it.note ? ` (${it.note})` : ''}.` };
+      const each = it.note ? ` (${it.note})` : '';
+      if (a.qty == null) return { ...base, severity: 'minor', title: cut(`Bus check: ${it.name} short (need ${num(it.min ?? 0)}${u})`), found: `Marked short; how many were there was not given. The minimum is ${num(it.min ?? 0)}${u}${each}.` };
+      return { ...base, severity: 'minor', title: cut(`Bus check: ${it.name} short (${num(a.qty)} of ${num(it.min ?? 0)}${u})`), found: `Found ${num(a.qty)}${u}, the minimum is ${num(it.min ?? 0)}${u}${each}.` };
     }
     case 'check':
       if (a.status !== 'fail') return null;
@@ -120,7 +122,8 @@ export function answerError(it: BusItem, a: BusAnswer | undefined): string | nul
     case 'count':
       if (a.status === 'ok') return null;
       if (a.status !== 'short') return 'Answer OK or Short.';
-      if (typeof a.qty !== 'number' || !Number.isInteger(a.qty) || a.qty < 0) return 'Enter how many there are (a whole number, 0 or more).';
+      if (a.qty == null) return null; // how many is optional: Short on its own is a full answer
+      if (typeof a.qty !== 'number' || !Number.isInteger(a.qty) || a.qty < 0) return 'Enter how many there are (a whole number, 0 or more), or leave it blank.';
       if (a.qty >= (it.min ?? 0)) return `Short means fewer than ${it.min}. If there are ${it.min} or more, answer OK.`;
       return null;
     case 'check':
@@ -170,7 +173,7 @@ export function allOkFill(section: BusSection, answers: BusAnswers): BusAnswers 
 /** Clean an answer so only the fields that belong to the item's kind are kept (the server stores exactly this). */
 export function cleanAnswer(it: BusItem, a: BusAnswer): BusAnswer {
   const out: BusAnswer = {};
-  if (it.kind === 'count') { out.status = a.status; if (a.status === 'short') out.qty = a.qty; }
+  if (it.kind === 'count') { out.status = a.status; if (a.status === 'short' && typeof a.qty === 'number') out.qty = a.qty; }
   else if (it.kind === 'check' || it.kind === 'optional') out.status = a.status;
   else if (it.kind === 'number') out.value = a.value;
   else if (it.kind === 'date') out.date = a.date;
