@@ -626,3 +626,329 @@ describe('sending with shortages', () => {
     expect((await submit(crew.cookie, await payload('v-01', { answers }))).status).toBe(400);
   });
 });
+
+/* ====================================================================== equipment shortages are not vehicle problems */
+
+const cntItem = () => sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'count' && i.min >= 2);
+const chkItem = () => sections.flatMap((s: any) => s.items).find((i: any) => i.kind === 'check');
+/** A check on `vehicleId` where the count item is short (and optionally more). */
+async function shortCheck(cookie: string, vehicleId: string, qty = 0, extra: (b: any) => void = () => {}, o: any = {}) {
+  const b = await payload(vehicleId, o); b.answers[cntItem().id] = { status: 'short', qty }; extra(b);
+  return must(await submit(cookie, b), 'short check ' + vehicleId);
+}
+const eq = async (cookie: string, qs = '') => (await api('GET', '/api/bus-checks/equipment' + qs, { cookie })).json;
+const grant = async (id: string, overrides: Record<string, boolean>) => must(await api('POST', `/api/users/${id}/permissions`, { cookie: (await as('system_admin', { email: 'sa-' + Math.random() + '@gema.test' })).cookie, body: { overrides } }), 'permissions');
+
+describe('equipment shortages are not vehicle problems', () => {
+  it('a shortage is in no problem list (sync, delta sync, dispatcher), the crew\'s reported problem is', async () => {
+    const before = (await syncAll(fm)).cursor;
+    const r = await shortCheck(crew.cookie, 'v-01', 0, (b) => { b.answers[chkItem().id] = { status: 'fail' }; b.problems = [{ title: 'Cracked mirror', severity: 'minor' }]; });
+    expect(r).toMatchObject({ shortages: 2, newShortages: 2, reported: 1 });
+    expect(await row("SELECT COUNT(*) AS n FROM issues WHERE source = 'bus_check'")).toEqual({ n: 2 }); // still stored
+    const dispatcher = (await as('dispatcher', { email: 'disp@gema.test' })).cookie;
+    for (const c of [fm, sup, crew.cookie, dispatcher]) {
+      const mine = (await syncAll(c)).data.issues.filter((i: any) => i.vehicleId === 'v-01' && i.busCheckId === r.id);
+      expect(mine.map((i: any) => i.title)).toEqual(['Cracked mirror']);
+      expect(mine[0].source).toBe('bus_check_report');
+      expect((await syncAll(c)).data.issues.some((i: any) => i.source === 'bus_check')).toBe(false);
+    }
+    const delta = (await syncAll(fm, before)).data.issues.map((i: any) => i.title);
+    expect(delta).toEqual(['Cracked mirror']);
+    // restocking changes the row but it still never appears
+    const id = (await eq(fm)).open[0].id;
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [id] }), 'restock');
+    expect((await syncAll(fm)).data.issues.some((i: any) => i.source === 'bus_check')).toBe(false);
+    expect((await syncAll(fm, before)).data.issues.map((i: any) => i.title)).toEqual(['Cracked mirror']);
+  });
+  it('a shortage cannot be dismissed or put in a work order (not found), a reported problem still can', async () => {
+    await shortCheck(crew.cookie, 'v-01', 0, (b) => { b.problems = [{ title: 'Cracked mirror', severity: 'minor' }]; });
+    const sh = (await eq(fm)).open[0].id;
+    const rep = (await syncAll(fm)).data.issues.find((i: any) => i.title === 'Cracked mirror').id;
+    expect((await post(fm, `/api/issues/${sh}/dismiss`)).status).toBe(404);
+    expect((await post(fm, '/api/work-orders', { vehicleId: 'v-01', type: 'corrective', issueIds: [sh] })).status).toBe(404);
+    expect((await post(fm, '/api/work-orders', { vehicleId: 'v-01', type: 'corrective', issueIds: [rep, sh] })).status).toBe(404);
+    expect(await row("SELECT COUNT(*) AS n FROM work_orders WHERE vehicle_id = 'v-01' AND opened_at >= ?", new Date(Date.now() - 60000).toISOString())).toEqual({ n: 0 }); // nothing was created
+    expect(await row('SELECT status, wo_id FROM issues WHERE id = ?', sh)).toEqual({ status: 'open', wo_id: null });
+    expect((await post(fm, '/api/work-orders', { vehicleId: 'v-01', type: 'corrective', issueIds: [rep] })).status).toBe(200);
+  });
+  it('a shortage never changes a unit\'s status or its history, whatever its severity', async () => {
+    const all = sections.flatMap((s: any) => s.items);
+    const body = await payload('v-01');
+    const events = await row<any>("SELECT COUNT(*) AS n FROM status_events WHERE vehicle_id = 'v-01'");
+    for (const it of all) { if (it.kind === 'count') body.answers[it.id] = { status: 'short', qty: 0 }; else if (it.kind === 'check') body.answers[it.id] = { status: 'fail' }; else if (it.kind === 'number') body.answers[it.id] = { value: 0 }; else if (it.kind === 'date') body.answers[it.id] = { date: '2001-01-01' }; }
+    const r = must(await submit(crew.cookie, body), 'everything short');
+    expect(r.shortages).toBeGreaterThan(20);
+    expect((await vehicleNow('v-01')).status).toBe('in_service');
+    expect(await row("SELECT COUNT(*) AS n FROM status_events WHERE vehicle_id = 'v-01'")).toEqual(events);
+    expect((await syncAll(fm)).data.vehicles.find((v: any) => v.id === 'v-01').status).toBe('in_service');
+    expect((await syncAll(fm)).data.issues.filter((i: any) => i.busCheckId === r.id)).toHaveLength(0);
+    expect((await eq(fm)).open.length).toBe(r.shortages);
+  });
+  it('attachments cannot be added to a shortage', async () => {
+    await shortCheck(crew.cookie, 'v-01');
+    const id = (await eq(fm)).open[0].id;
+    const form = new FormData(); form.set('entity_type', 'issue'); form.set('entity_id', id); form.set('file', new File(['x'], 'a.png', { type: 'image/png' }));
+    const r = await api('POST', '/api/attachments', { cookie: fm, form });
+    expect([403, 404]).toContain(r.status); // uploads are off by default (403) or the shortage is "no longer exists" (404); never accepted
+    expect(await row('SELECT COUNT(*) AS n FROM attachments')).toEqual({ n: 0 });
+  });
+  it('the check\'s history count and CSV count only vehicle problems the crew reported', async () => {
+    const r = await shortCheck(crew.cookie, 'v-01', 0, (b) => { b.problems = [{ title: 'Cracked mirror', severity: 'minor' }]; });
+    const h = (await api('GET', '/api/bus-checks', { cookie: fm })).json.rows[0];
+    expect(h).toMatchObject({ id: r.id, shortages: 1, problems: 1 });
+    const csv = await (await api('GET', '/api/bus-checks/export', { cookie: fm })).res.text();
+    expect(csv).toContain('Problems reported');
+    const c = (await api('GET', '/api/bus-checks/' + r.id, { cookie: fm })).json.check;
+    expect(c.problems.map((p: any) => p.kind).sort()).toEqual(['new', 'reported']);
+  });
+});
+
+describe('equipment list and restocking', () => {
+  it('lists open shortages by unit with what was found, first found, how many checks and the last check', async () => {
+    const cnt = cntItem();
+    const a = await shortCheck(crew.cookie, 'v-01', 1), b = await shortCheck(crew.cookie, 'v-01', 0);
+    await shortCheck(crew.cookie, 'v-09'); // Diamond
+    const d = await eq(fm);
+    expect(d.open).toHaveLength(2);
+    const r = d.open.find((x: any) => x.vehicleId === 'v-01');
+    expect(r).toMatchObject({ unit: expect.any(String), base: 'HQ', baseId: 'b-hq', itemId: cnt.id, name: cnt.name, checks: 2, lastCheckId: b.id, status: 'open' });
+    expect(r.found).toBe(`Found 0${cnt.unit ? ' ' + cnt.unit : ''}, the minimum is ${cnt.min}${cnt.unit ? ' ' + cnt.unit : ''}${cnt.note ? ` (${cnt.note})` : ''}.`);
+    expect(r.firstAt <= r.lastAt).toBe(true);
+    expect(r.section).toBeTruthy();
+    expect(JSON.parse((await row<any>('SELECT problems FROM bus_checks WHERE id = ?', a.id))!.problems)[0].kind).toBe('new');
+    expect(d.open.map((x: any) => x.base)).toEqual(['HQ', 'Diamond']); // HQ first, then by name
+    // filters: base and unit
+    expect((await eq(fm, '?baseId=b-diamond')).open.map((x: any) => x.vehicleId)).toEqual(['v-09']);
+    expect((await eq(fm, '?vehicleId=v-01')).open.map((x: any) => x.vehicleId)).toEqual(['v-01']);
+    expect((await eq(fm, '?baseId=b-diamond&vehicleId=v-01')).open).toHaveLength(0);
+    expect((await api('GET', '/api/bus-checks/equipment?vehicleId=nope', { cookie: fm })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment?baseId=nope', { cookie: fm })).status).toBe(404);
+  });
+  it('who sees the list: reports or restock; supervisors only their bases; crew, mechanic, viewer, dispatcher not', async () => {
+    await shortCheck(crew.cookie, 'v-01'); await shortCheck(crew.cookie, 'v-09');
+    expect((await eq(sup)).open.map((x: any) => x.vehicleId)).toEqual(['v-01']);
+    expect((await api('GET', '/api/bus-checks/equipment?vehicleId=v-09', { cookie: sup })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment?baseId=b-diamond', { cookie: sup })).json.open).toHaveLength(0);
+    const none = (await as('base_supervisor', { email: 'nb@gema.test', baseIds: [] })).cookie;
+    expect((await eq(none)).open).toHaveLength(0);
+    for (const role of ['crew', 'mechanic', 'viewer', 'dispatcher']) {
+      const c = role === 'crew' ? crew.cookie : (await as(role, { email: `${role}@eq.test` })).cookie;
+      expect((await api('GET', '/api/bus-checks/equipment', { cookie: c })).status, role).toBe(403);
+      expect((await api('GET', '/api/bus-checks/equipment/export', { cookie: c })).status, role).toBe(403);
+    }
+    // restock right alone (without reports) is enough to see it; reports alone is enough too
+    const odd = await as('crew', { email: 'odd@gema.test', baseIds: [] });
+    await grant(odd.user.id, { busCheckRestock: true });
+    expect((await eq(odd.cookie)).open).toHaveLength(2);
+    await grant(odd.user.id, { busCheckRestock: false, busCheckReports: true });
+    expect((await eq(odd.cookie)).open).toHaveLength(2);
+  });
+  it('restock permission: supervisor only at their bases, fleet manager and admin everywhere; crew, mechanic, viewer, dispatcher never', async () => {
+    await shortCheck(crew.cookie, 'v-01'); await shortCheck(crew.cookie, 'v-09');
+    const ids = Object.fromEntries((await eq(fm)).open.map((x: any) => [x.vehicleId, x.id]));
+    const rs = (c: string, id: string) => post(c, '/api/bus-checks/equipment/restock', { ids: [id] });
+    for (const role of ['crew', 'mechanic', 'viewer', 'dispatcher']) {
+      const c = role === 'crew' ? crew.cookie : (await as(role, { email: `${role}@rs.test` })).cookie;
+      expect((await rs(c, ids['v-01'])).status, role).toBe(403);
+    }
+    expect((await rs(sup, ids['v-09'])).status).toBe(404); // another base: not found, nothing changed
+    expect((await row<any>('SELECT status FROM issues WHERE id = ?', ids['v-09']))!.status).toBe('open');
+    expect((await rs(sup, ids['v-01'])).status).toBe(200);
+    const sa = (await as('system_admin', { email: 'sa@rs.test' })).cookie;
+    expect((await rs(sa, ids['v-09'])).status).toBe(200);
+    expect((await eq(fm)).open).toHaveLength(0);
+  });
+  it('per-person override: a supervisor can be refused, a crew member allowed (at their own bases)', async () => {
+    await shortCheck(fm, 'v-01'); await shortCheck(fm, 'v-09');
+    const ids = Object.fromEntries((await eq(fm)).open.map((x: any) => [x.vehicleId, x.id]));
+    const supUser = await as('base_supervisor', { email: 's-ovr@gema.test', baseIds: ['b-hq'] });
+    await grant(supUser.user.id, { busCheckRestock: false });
+    expect((await post(supUser.cookie, '/api/bus-checks/equipment/restock', { ids: [ids['v-01']] })).status).toBe(403);
+    expect((await syncAll(supUser.cookie)).me.perms.busCheckRestock).toBe(false);
+    const hqCrew = await as('crew', { email: 'c-ovr@gema.test', baseIds: ['b-hq'] });
+    await grant(hqCrew.user.id, { busCheckRestock: true });
+    expect((await syncAll(hqCrew.cookie)).me.perms.busCheckRestock).toBe(true);
+    expect((await post(hqCrew.cookie, '/api/bus-checks/equipment/restock', { ids: [ids['v-09']] })).status).toBe(404); // not at their base
+    expect((await post(hqCrew.cookie, '/api/bus-checks/equipment/restock', { ids: [ids['v-01']] })).status).toBe(200);
+    // role-level change: take it away from every supervisor
+    const sa = (await as('system_admin', { email: 'sa2@gema.test' })).cookie;
+    must(await api('PUT', '/api/roles/base_supervisor/permissions', { cookie: sa, body: { overrides: { busCheckRestock: false } } }), 'role perms');
+    const other = await as('base_supervisor', { email: 's-role@gema.test', baseIds: ['b-diamond'] });
+    expect((await post(other.cookie, '/api/bus-checks/equipment/restock', { ids: [ids['v-09']] })).status).toBe(403);
+  });
+  it('defaults: the new switch is in the Bus checks group with base supervisors, fleet managers and administrators', async () => {
+    const me = async (c: string) => (await syncAll(c)).me.perms.busCheckRestock;
+    expect(await me(fm)).toBe(true); expect(await me(sup)).toBe(true); expect(await me(crew.cookie)).toBe(false);
+    expect(await me((await as('mechanic', { email: 'm@x.test' })).cookie)).toBe(false);
+    expect(await me((await as('system_admin', { email: 'sa3@x.test' })).cookie)).toBe(true);
+  });
+  it('Mark restocked closes it, records who and when, adds the note, is audited and shows under Restocked recently', async () => {
+    const a = await shortCheck(crew.cookie, 'v-01');
+    const id = (await eq(fm)).open[0].id;
+    const r = must(await post(sup, '/api/bus-checks/equipment/restock', { ids: [id], note: 'New box from stores' }), 'restock');
+    expect(r).toMatchObject({ restocked: 1 });
+    const is = (await row<any>('SELECT status, restocked_by, restocked_at, description, wo_id FROM issues WHERE id = ?', id))!;
+    expect(is.status).toBe('restocked');
+    expect(is.restocked_by).toBeTruthy();
+    expect(Date.now() - Date.parse(is.restocked_at)).toBeLessThan(60000);
+    expect(is.description).toContain('Restocked by Test base_supervisor');
+    expect(is.description).toContain('Note: New box from stores');
+    const d = await eq(fm, '?recent=1');
+    expect(d.open).toHaveLength(0);
+    expect(d.recent).toHaveLength(1);
+    expect(d.recent[0]).toMatchObject({ id, status: 'restocked', restockedByName: 'Test base_supervisor', restockNote: 'New box from stores', lastCheckId: a.id });
+    expect(d.recent[0].found).toContain('the minimum is'); // the restock note does not leak into "what was found"
+    expect((await eq(fm)).recent).toEqual([]); // not asked for
+    const au = (await rows<any>("SELECT action, entity_type, entity_id, before_json, after_json, user_id FROM audit_log WHERE action = 'issue.restock'"));
+    expect(au).toHaveLength(1);
+    expect(au[0]).toMatchObject({ entity_type: 'issue', entity_id: id });
+    expect(JSON.parse(au[0].before_json)).toEqual({ status: 'open' });
+    expect(JSON.parse(au[0].after_json)).toMatchObject({ status: 'restocked', note: 'New box from stores', vehicleId: 'v-01' });
+    // it is in the activity history in plain English
+    const sa = (await as('system_admin', { email: 'sa4@x.test' })).cookie;
+    const act = (await api('GET', '/api/admin/activity/export', { cookie: sa })).res;
+    expect(await act.text()).toContain('restocked');
+    // restocking the same one again is refused
+    expect((await post(fm, '/api/bus-checks/equipment/restock', { ids: [id] })).status).toBe(409);
+  });
+  it('Restocked recently only reaches back 30 days, and the unit status is untouched', async () => {
+    await shortCheck(crew.cookie, 'v-01');
+    const id = (await eq(fm)).open[0].id;
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [id] }), 'restock');
+    expect((await eq(fm, '?recent=1')).recent).toHaveLength(1);
+    await E.DB.prepare('UPDATE issues SET restocked_at = ? WHERE id = ?').bind(new Date(Date.now() - 31 * 864e5).toISOString(), id).run();
+    expect((await eq(fm, '?recent=1')).recent).toHaveLength(0);
+    expect((await vehicleNow('v-01')).status).toBe('in_service');
+  });
+  it('Mark all restocked for a unit closes them all in one go; a bad id changes nothing', async () => {
+    await shortCheck(crew.cookie, 'v-01', 0, (b) => { b.answers[chkItem().id] = { status: 'fail' }; });
+    await shortCheck(crew.cookie, 'v-02');
+    const open = (await eq(fm)).open, mine = open.filter((x: any) => x.vehicleId === 'v-01').map((x: any) => x.id);
+    expect(mine).toHaveLength(2);
+    expect((await post(fm, '/api/bus-checks/equipment/restock', { ids: [...mine, 'nope'] })).status).toBe(404);
+    expect((await eq(fm)).open).toHaveLength(3);
+    expect((await post(fm, '/api/bus-checks/equipment/restock', { ids: [] })).status).toBe(400);
+    expect((await post(fm, '/api/bus-checks/equipment/restock', { ids: mine, note: 'x'.repeat(201) })).status).toBe(400);
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: mine, note: 'Restocked from stores' }), 'all');
+    expect((await eq(fm)).open.map((x: any) => x.vehicleId)).toEqual(['v-02']);
+    expect(await row("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'issue.restock'")).toEqual({ n: 2 });
+  });
+  it('a restocked item found short again on a later check is a NEW shortage, not joined to the closed one', async () => {
+    const a = await shortCheck(crew.cookie, 'v-01');
+    const first = (await eq(fm)).open[0];
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [first.id] }), 'restock');
+    const b = await shortCheck(crew.cookie, 'v-01', 1);
+    expect(b).toMatchObject({ newShortages: 1, joined: 0 });
+    const issues = await rows<any>("SELECT id, status, bus_check_id FROM issues WHERE source = 'bus_check' AND vehicle_id = 'v-01' ORDER BY created_at, id");
+    expect(issues).toHaveLength(2);
+    expect(issues.map((x) => x.status).sort()).toEqual(['open', 'restocked']);
+    expect(issues.find((x) => x.status === 'open')).toMatchObject({ bus_check_id: b.id });
+    expect((await row<any>('SELECT description FROM issues WHERE id = ?', first.id))!.description).not.toContain('Found again');
+    const d = await eq(fm, '?recent=1');
+    expect(d.open).toHaveLength(1);
+    expect(d.open[0]).toMatchObject({ checks: 1, lastCheckId: b.id });
+    expect(d.open[0].id).not.toBe(first.id);
+    expect(d.recent).toHaveLength(1);
+    expect(a.id).not.toBe(b.id);
+  });
+  it('found short again while open: it is added to the open shortage, and the checks count goes up', async () => {
+    await shortCheck(crew.cookie, 'v-01'); await shortCheck(crew.cookie, 'v-01'); const c = await shortCheck(crew.cookie, 'v-01', 1);
+    const d = await eq(fm);
+    expect(d.open).toHaveLength(1);
+    expect(d.open[0]).toMatchObject({ checks: 3, lastCheckId: c.id });
+    expect(d.open[0].found).toContain('Found 1');
+  });
+  it('CSV export of the open shortages follows the filters and the scope', async () => {
+    await shortCheck(crew.cookie, 'v-01'); await shortCheck(crew.cookie, 'v-09');
+    const x = await api('GET', '/api/bus-checks/equipment/export', { cookie: fm });
+    expect(x.status).toBe(200);
+    expect(x.headers.get('content-type')).toContain('text/csv');
+    const lines = (await x.res.text()).replace(/^﻿/, '').trim().split('\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('What was found');
+    expect(lines[1]).toContain('HQ');
+    expect(lines[2]).toContain('Diamond');
+    expect(x.headers.get('x-rows')).toBe('2');
+    const hq = await (await api('GET', '/api/bus-checks/equipment/export?baseId=b-hq', { cookie: fm })).res.text();
+    expect(hq.trim().split('\n')).toHaveLength(2);
+    expect((await (await api('GET', '/api/bus-checks/equipment/export', { cookie: sup })).res.text()).trim().split('\n')).toHaveLength(2); // supervisor: HQ only
+    expect((await api('GET', '/api/bus-checks/equipment/export?vehicleId=v-09', { cookie: sup })).status).toBe(404);
+    await shortCheck(crew.cookie, 'v-02', 0, undefined, {});
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: (await eq(fm)).open.filter((r: any) => r.vehicleId === 'v-01').map((r: any) => r.id) }), 'restock');
+    expect((await (await api('GET', '/api/bus-checks/equipment/export', { cookie: fm })).res.text()).trim().split('\n')).toHaveLength(3); // restocked ones are not exported
+  });
+  it('the crew\'s known shortages: their unit only, no ids, and not for units they may not check', async () => {
+    await shortCheck(crew.cookie, 'v-01');
+    const r = (await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-01', { cookie: crew.cookie })).json;
+    expect(r.shortages).toHaveLength(1);
+    expect(r.shortages[0]).toMatchObject({ itemId: cntItem().id, name: cntItem().name, checks: 1 });
+    expect(JSON.stringify(r)).not.toContain('"id"');
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-02', { cookie: crew.cookie })).json.shortages).toEqual([]);
+    expect((await api('GET', '/api/bus-checks/equipment/known', { cookie: crew.cookie })).status).toBe(400);
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=nope', { cookie: crew.cookie })).status).toBe(404);
+    const hqOnly = await as('crew', { email: 'hq-only@gema.test', baseIds: ['b-diamond'] });
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-01', { cookie: hqOnly.cookie })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-01', { cookie: (await as('viewer', { email: 'v@k.test' })).cookie })).status).toBe(403);
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [(await eq(fm)).open[0].id] }), 'restock');
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-01', { cookie: crew.cookie })).json.shortages).toEqual([]);
+  });
+});
+
+describe('equipment shortages: agency isolation (both directions)', () => {
+  let bAdmin: string, B: any;
+  beforeEach(async () => {
+    const b = await makeAgency('BB', 'Bravo', 'admin@bb.test');
+    bAdmin = await loginAs(b);
+    B = {};
+    B.base = must(await post(bAdmin, '/api/bases', { name: 'B Depot', region: 'N', minUnits: 1 }), 'base').id;
+    B.vehicle = must(await post(bAdmin, '/api/vehicles', { unit: 'ZZB-1', make: 'Ford', model: 'T', type: 'Type II ambulance', baseId: B.base, pmStart: 'never' }), 'vehicle').id;
+    B.list = must(await post(bAdmin, '/api/bus-check-lists/standard'), 'B starter').id;
+    B.sections = (await syncAll(bAdmin)).data.busCheckLists.find((l: any) => l.id === B.list).sections;
+  });
+  const bShort = async () => {
+    const b: any = { vehicleId: B.vehicle, listId: B.list, baseId: B.base, crew: { emt1: { name: 'x' }, emt2: { name: 'y' } }, km: 10, hours: 10, answers: ok(B.sections), problems: [], attested: true };
+    b.answers[cntItem().id] = { status: 'short', qty: 0 };
+    return must(await submit(bAdmin, b), 'B check');
+  };
+  it('each agency sees only its own shortages, in the list, the CSV and the crew panel', async () => {
+    await shortCheck(fm, 'v-01'); await bShort();
+    const g = await eq(fm), bb = await eq(bAdmin);
+    expect(g.open.map((x: any) => x.vehicleId)).toEqual(['v-01']);
+    expect(bb.open.map((x: any) => x.vehicleId)).toEqual([B.vehicle]);
+    expect(await (await api('GET', '/api/bus-checks/equipment/export', { cookie: fm })).res.text()).not.toContain('ZZB-1');
+    expect(await (await api('GET', '/api/bus-checks/equipment/export', { cookie: bAdmin })).res.text()).not.toContain('HQ');
+    expect((await api('GET', '/api/bus-checks/equipment?vehicleId=' + B.vehicle, { cookie: fm })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment?vehicleId=v-01', { cookie: bAdmin })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment?baseId=' + B.base, { cookie: fm })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=' + B.vehicle, { cookie: fm })).status).toBe(404);
+    expect((await api('GET', '/api/bus-checks/equipment/known?vehicleId=v-01', { cookie: bAdmin })).status).toBe(404);
+  });
+  it('B cannot restock GEMA\'s shortage and GEMA cannot restock B\'s; nothing changes, even in a mixed request', async () => {
+    await shortCheck(fm, 'v-01'); await bShort();
+    const gid = (await eq(fm)).open[0].id, bid = (await eq(bAdmin)).open[0].id;
+    expect((await post(bAdmin, '/api/bus-checks/equipment/restock', { ids: [gid] })).status).toBe(404);
+    expect((await post(fm, '/api/bus-checks/equipment/restock', { ids: [bid] })).status).toBe(404);
+    expect((await post(bAdmin, '/api/bus-checks/equipment/restock', { ids: [bid, gid] })).status).toBe(404);
+    expect(await row("SELECT COUNT(*) AS n FROM issues WHERE status = 'open' AND source = 'bus_check'")).toEqual({ n: 2 });
+    expect(await row("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'issue.restock'")).toEqual({ n: 0 });
+    expect((await post(bAdmin, '/api/bus-checks/equipment/restock', { ids: [bid] })).status).toBe(200);
+    expect(await row("SELECT agency_id FROM audit_log WHERE action = 'issue.restock'")).toEqual({ agency_id: 'BB' });
+    expect((await eq(fm)).open).toHaveLength(1);
+    expect((await eq(bAdmin, '?recent=1')).recent).toHaveLength(1);
+    expect((await eq(fm, '?recent=1')).recent).toHaveLength(0);
+  });
+  it('a shortage of one agency is not a problem of the other either (work orders, dismiss)', async () => {
+    await shortCheck(fm, 'v-01');
+    const gid = (await eq(fm)).open[0].id;
+    expect((await post(bAdmin, `/api/issues/${gid}/dismiss`)).status).toBe(404);
+    expect((await post(bAdmin, '/api/work-orders', { vehicleId: B.vehicle, type: 'corrective', issueIds: [gid] })).status).toBeGreaterThanOrEqual(400);
+    expect((await syncAll(bAdmin)).data.issues).toHaveLength(0);
+  });
+  it('the same item restocked in A does not touch B\'s open shortage for the same item id', async () => {
+    await shortCheck(fm, 'v-01'); await bShort();
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [(await eq(fm)).open[0].id] }), 'restock');
+    expect((await eq(bAdmin)).open).toHaveLength(1);
+    const again = await bShort();
+    expect(again).toMatchObject({ newShortages: 0, joined: 1 });
+  });
+});

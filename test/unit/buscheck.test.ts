@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ITEM_KINDS, allOkFill, answerError, cellState, checkAnswers, cleanAnswer, listClash, parseShiftTimes, pickList, progress, shiftFor, shiftMinutes, shiftsOnDate, shortageOf, EARLY_MIN,
+  ITEM_KINDS, allOkFill, answerError, cellState, checkAnswers, cleanAnswer, listClash, parseShiftTimes, pickList, progress, shiftFor, shiftMinutes, shiftsOnDate, shortageOf, EARLY_MIN, latestFound, restockNote,
   type BusItem, type BusSection,
 } from '../../src/shared/buscheck';
 import { STARTER_SECTIONS } from '../../src/shared/busCheckStarter';
@@ -195,5 +195,40 @@ describe('baseScope matches vehicleInScope', () => {
       }
     }
     expect(baseScope(mk('crew', [], true), 'busCheck')).toBeNull();
+  });
+});
+
+describe('reading a shortage\'s description', () => {
+  const first = 'Found by a bus check on 05/11/2026 07:10.\nOxygen: Portable bag valve mask\nFound 2, the minimum is 6.\nNote: box was empty';
+  it('latestFound: the first finding, then the newest "Found again" line, never the restock text or a crew note', () => {
+    expect(latestFound(first)).toBe('Found 2, the minimum is 6.');
+    const again = first + '\n\nFound again by a bus check on 06/11/2026 07:02: Found 0, the minimum is 6. Note: still none';
+    expect(latestFound(again)).toBe('Found 0, the minimum is 6.');
+    expect(latestFound(again + '\n\nFound again by a bus check on 07/11/2026 19:01: Marked as failed.')).toBe('Marked as failed.');
+    expect(latestFound(again + '\n\nRestocked by Ann Lee on 07/11/2026 09:00. Note: from stores')).toBe('Found 0, the minimum is 6.');
+    expect(latestFound('')).toBe('');
+  });
+  it('restockNote: the note typed at restock, or empty', () => {
+    expect(restockNote(first + '\n\nRestocked by Ann Lee on 07/11/2026 09:00. Note: New box from stores. Two sets.')).toBe('New box from stores. Two sets.');
+    expect(restockNote(first + '\n\nRestocked by Ann Lee on 07/11/2026 09:00.')).toBe('');
+    expect(restockNote(first)).toBe('');
+  });
+});
+describe('busCheckRestock permission', () => {
+  const actor = (role: string, baseIds: string[] = []) => ({ id: 'u', role, baseIds, email: '', name: '', mechanicId: null, agencyId: 'A', homeAgencyId: 'A' }) as any as Actor;
+  it('defaults: base supervisor (own bases only), fleet manager and system admin; nobody else', async () => {
+    const { can } = await import('../../src/shared/perm');
+    for (const r of ['base_supervisor', 'fleet_manager', 'system_admin']) expect(can({ role: r }, 'busCheckRestock'), r).toBe(true);
+    for (const r of ['crew', 'mechanic', 'viewer', 'dispatcher']) expect(can({ role: r }, 'busCheckRestock'), r).toBe(false);
+    expect(baseScope(actor('base_supervisor', ['b1']), 'busCheckRestock')).toEqual(['b1']);
+    expect(vehicleInScope(actor('base_supervisor', ['b1']), 'busCheckRestock', 'b2')).toBe(false);
+    expect(baseScope(actor('fleet_manager'), 'busCheckRestock')).toBeNull();
+  });
+  it('is in the Bus checks group of the permission editors, once', async () => {
+    const { PERM_GROUPS, EDITABLE_KEYS } = await import('../../src/shared/perm');
+    const g = PERM_GROUPS.find((x) => x.title === 'Bus checks')!;
+    expect(g.items.find(([k]) => k === 'busCheckRestock')).toEqual(['busCheckRestock', 'Mark equipment restocked']);
+    expect(EDITABLE_KEYS).toContain('busCheckRestock');
+    expect(PERM_GROUPS.flatMap((x) => x.items).filter(([k]) => k === 'busCheckRestock')).toHaveLength(1);
   });
 });
