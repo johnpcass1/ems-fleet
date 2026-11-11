@@ -18,7 +18,7 @@ export interface CollSpec {
 }
 
 const ATT_SUB = (type: string) => `(SELECT json_group_array(json_object('assetId', a.id, 'name', a.name, 'type', a.content_type, 'size', a.size, 'at', a.created_at, 'by', a.created_by))
-  FROM (SELECT * FROM attachments WHERE entity_type = '${type}' AND entity_id = X.id ORDER BY created_at, id) a)`;
+  FROM (SELECT * FROM attachments WHERE agency_id = X.agency_id AND entity_type = '${type}' AND entity_id = X.id ORDER BY created_at, id) a)`;
 
 export const SPECS: Record<string, CollSpec> = {
   bases: {
@@ -28,12 +28,12 @@ export const SPECS: Record<string, CollSpec> = {
   pmPrograms: {
     coll: 'pmPrograms', table: 'pm_programs',
     select: `SELECT X.*, (SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'group', t.grp, 'intervalHours', t.interval_hours, 'intervalDays', t.interval_days, 'intervalKm', t.interval_km))
-       FROM (SELECT * FROM pm_tasks WHERE program_id = X.id ORDER BY sort, id) t) AS tasks FROM pm_programs X`,
+       FROM (SELECT * FROM pm_tasks WHERE agency_id = X.agency_id AND program_id = X.id ORDER BY sort, id) t) AS tasks FROM pm_programs X`,
     map: (r) => ({ id: r.id, name: r.name, appliesTo: r.applies_to, tasks: j(r.tasks, []), ...sampleCol(r) }),
   },
   vehicles: {
     coll: 'vehicles', table: 'vehicles',
-    select: `SELECT X.*, (SELECT json_group_array(json_object('t', p.task_id, 'h', p.last_hours, 'k', p.last_km, 'd', p.last_date)) FROM vehicle_pm p WHERE p.vehicle_id = X.id) AS pm FROM vehicles X`,
+    select: `SELECT X.*, (SELECT json_group_array(json_object('t', p.task_id, 'h', p.last_hours, 'k', p.last_km, 'd', p.last_date)) FROM vehicle_pm p WHERE p.agency_id = X.agency_id AND p.vehicle_id = X.id) AS pm FROM vehicles X`,
     map: (r) => {
       const pm: Record<string, any> = {};
       for (const p of j(r.pm, [])) pm[p.t] = { lastHours: p.h, lastKm: p.k, lastDate: p.d };
@@ -72,10 +72,10 @@ export const SPECS: Record<string, CollSpec> = {
   workOrders: {
     coll: 'workOrders', table: 'work_orders',
     select: `SELECT X.*,
-      (SELECT json_group_array(issue_id) FROM wo_issue_links WHERE wo_id = X.id) AS issue_ids,
-      (SELECT json_group_array(task_id) FROM wo_pm_tasks WHERE wo_id = X.id) AS pm_task_ids,
+      (SELECT json_group_array(issue_id) FROM wo_issue_links WHERE agency_id = X.agency_id AND wo_id = X.id) AS issue_ids,
+      (SELECT json_group_array(task_id) FROM wo_pm_tasks WHERE agency_id = X.agency_id AND wo_id = X.id) AS pm_task_ids,
       (SELECT json_group_array(json_object('id', l.id, 'kind', l.kind, 'description', l.description, 'repairCode', l.repair_code, 'qty', l.qty, 'unitCost', l.unit_cost, 'partId', l.part_id, 'warranty', l.warranty))
-         FROM (SELECT * FROM work_order_lines WHERE wo_id = X.id ORDER BY sort, id) l) AS lines,
+         FROM (SELECT * FROM work_order_lines WHERE agency_id = X.agency_id AND wo_id = X.id ORDER BY sort, id) l) AS lines,
       ${ATT_SUB('work_order')} AS atts
       FROM work_orders X`,
     map: (r) => {
@@ -114,13 +114,17 @@ export const FULL_COLLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', '
 /** The dispatcher sees status, base, PM state and open work, but no costs, notes, parts or attachments. */
 export const DISPATCH_COLLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'moves', 'issues', 'workOrders', 'mechanics', 'settings', 'people'];
 
-export async function loadDocs(db: D1Database, coll: string, where = '', ...params: unknown[]) {
+/**
+ * Documents of one collection, ALWAYS limited to one agency (the first condition of every query here is X.agency_id = ?).
+ * `where` (optional) is an extra condition on top; every SPECS select aliases its table as X.
+ */
+export async function loadDocs(db: D1Database, agency: string, coll: string, where = '', ...params: unknown[]) {
   const s = SPECS[coll];
-  const rows = await all(db, `${s.select}${where ? ' WHERE ' + where : ''}`, ...params);
+  const rows = await all(db, `${s.select} WHERE X.agency_id = ?${where ? ' AND (' + where + ')' : ''}`, agency, ...params);
   return rows.map(s.map);
 }
-export async function loadDoc(db: D1Database, coll: string, id: string) {
-  return (await loadDocs(db, coll, 'X.id = ?', id))[0] ?? null;
+export async function loadDoc(db: D1Database, agency: string, coll: string, id: string) {
+  return (await loadDocs(db, agency, coll, 'X.id = ?', id))[0] ?? null;
 }
 
 /** Strip fields the dispatcher must not see. */

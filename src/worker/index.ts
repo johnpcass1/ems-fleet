@@ -12,6 +12,8 @@ import { syncSince } from './sync';
 import * as rules from './rules';
 import * as users from './users';
 import * as roles from './roles';
+import * as agencies from './agencies';
+import { CODE_RE, getAgency, normCode } from './agencies';
 import { forgotPassword, publicMe, setPasswordFromLink, tokenInfo } from './accounts';
 import { emailEnabled, lastSinkMail, sinkActive } from './mail';
 import { deleteAttachment, downloadAttachment, uploadAttachment } from './files';
@@ -51,17 +53,22 @@ app.notFound((c) => c.json({ error: 'Not found.', code: 'not_found' }, 404));
 app.get('/api/health', (c) => c.json({ ok: true }));
 
 /* ---------- login / logout ---------- */
-const loginIn = z.object({ email: z.string().trim().toLowerCase().max(200), password: z.string().max(200) });
+const loginIn = z.object({ agencyId: z.string().max(100), email: z.string().trim().toLowerCase().max(200), password: z.string().max(200) });
+/** One answer for every way a sign-in can fail (unknown agency, inactive agency, unknown email, wrong password), so nobody can find out which agencies exist. */
+const BAD_LOGIN = 'Wrong Agency ID, email or password.';
 
 app.post('/api/auth/login', async (c) => {
   const i = parse(loginIn, await c.req.json().catch(() => ({})));
-  const state = await loginState(c.env.DB, i.email);
+  const code = normCode(i.agencyId).slice(0, 40); // what was typed, trimmed and upper case; used for the lock count whether or not it is a real agency
+  const state = await loginState(c.env.DB, code, i.email);
   const lock = state.lockedUntil;
   if (lock) {
     const mins = Math.max(1, Math.ceil((lock - Date.now()) / 60000));
     throw new HttpError(429, `Too many wrong passwords. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`, 'locked');
   }
-  const u = await first<any>(c.env.DB, 'SELECT * FROM users WHERE email = ?', i.email);
+  const agency = CODE_RE.test(code) ? await getAgency(c.env.DB, code) : null;
+  // The account is looked up inside the agency only, and only when the agency is active.
+  const u = agency && agency.active ? await first<any>(c.env.DB, 'SELECT * FROM users WHERE agency_id = ? AND email = ?', agency.id, i.email) : null;
   let ok = false;
   let iterations = 0;
   if (u && u.active && String(u.password_hash).startsWith('pbkdf2-sha256$')) {
@@ -69,29 +76,33 @@ app.post('/api/auth/login', async (c) => {
     ok = v.ok;
     iterations = v.iterations;
   } else {
-    await dummyVerify(i.password, c.env); // same cost whether or not the email exists
+    await dummyVerify(i.password, c.env); // same cost whatever is wrong: unknown agency, unknown email, no password yet
   }
   if (!ok) {
-    await recordAttempt(c.env.DB, i.email, false);
+    await recordAttempt(c.env.DB, code, i.email, false);
     // Sign-in history: the address that was tried (never the password; text that is not an email address, such as a password typed
     // into the wrong box, is not kept at all) and the account it belongs to, if there is one. The failure that starts a lock also writes "locked".
-    const at = nowISO();
-    const tried = /^\S+@\S+\.\S+$/.test(i.email) ? i.email : '(not an email address)';
-    const rows = [auditStmt(c.env.DB, { at, userId: u?.id ?? null, email: tried, action: 'auth.login_failed', entityType: 'user', entityId: u?.id ?? null })];
-    if (state.fails + 1 >= LOCK_FAILS) rows.push(auditStmt(c.env.DB, { at, userId: u?.id ?? null, email: tried, action: 'auth.locked', entityType: 'user', entityId: u?.id ?? null, after: { minutes: LOCK_MS / 60000, fails: LOCK_FAILS } }));
-    await c.env.DB.batch(rows);
-    throw new HttpError(401, 'Wrong email or password.', 'bad_login');
+    // Failures are written into the agency's own history when the agency exists; for a code that is not an agency there is nobody to show them to, so nothing is written.
+    if (agency) {
+      const at = nowISO();
+      const tried = /^\S+@\S+\.\S+$/.test(i.email) ? i.email : '(not an email address)';
+      const rows = [auditStmt(c.env.DB, { agencyId: agency.id, at, userId: u?.id ?? null, email: tried, action: 'auth.login_failed', entityType: 'user', entityId: u?.id ?? null })];
+      if (state.fails + 1 >= LOCK_FAILS) rows.push(auditStmt(c.env.DB, { agencyId: agency.id, at, userId: u?.id ?? null, email: tried, action: 'auth.locked', entityType: 'user', entityId: u?.id ?? null, after: { minutes: LOCK_MS / 60000, fails: LOCK_FAILS } }));
+      await c.env.DB.batch(rows);
+    }
+    throw new HttpError(401, BAD_LOGIN, 'bad_login');
   }
-  await recordAttempt(c.env.DB, i.email, true);
+  await recordAttempt(c.env.DB, code, i.email, true);
   const now = nowISO();
-  const stmts = [c.env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now, u.id)];
+  const stmts = [c.env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ? AND agency_id = ?').bind(now, u.id, u.agency_id)];
   // If the iteration setting was raised, upgrade this user's hash while we have the password.
   const want = iterationsFor(c.env);
-  if (iterations < want) stmts.push(c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(i.password, want), u.id));
-  stmts.push(auditStmt(c.env.DB, { at: now, userId: u.id, email: u.email, action: 'auth.login', entityType: 'user', entityId: u.id }));
+  if (iterations < want) stmts.push(c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND agency_id = ?').bind(await hashPassword(i.password, want), u.id, u.agency_id));
+  stmts.push(auditStmt(c.env.DB, { agencyId: u.agency_id, at: now, userId: u.id, email: u.email, action: 'auth.login', entityType: 'user', entityId: u.id }));
   await c.env.DB.batch(stmts);
-  await createSession(c, u.id);
-  return c.json({ user: publicMe({ ...actorFrom(c.env, u, await loadRolePerms(c.env.DB)), mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
+  await createSession(c, u.id, u.agency_id);
+  const me = { ...actorFrom(c.env, u, await loadRolePerms(c.env.DB, u.agency_id)), mustChangePassword: u.must_change_password, agencyName: agency!.name, homeAgencyName: agency!.name };
+  return c.json({ user: publicMe(me), emailEnabled: emailEnabled(c.env) });
 });
 
 /* ---------- email links: choose a password, forgot password (no login needed) ---------- */
@@ -125,7 +136,7 @@ authed.post('/auth/logout', async (c) => {
   const now = nowISO();
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(u.sessionId),
-    auditStmt(c.env.DB, { at: now, userId: u.id, email: u.email, action: 'auth.logout', entityType: 'user', entityId: u.id }),
+    auditStmt(c.env.DB, { agencyId: u.homeAgencyId, at: now, userId: u.id, email: u.email, action: 'auth.logout', entityType: 'user', entityId: u.id }),
   ]);
   clearSessionCookie(c);
   return c.json({ ok: true });
@@ -134,15 +145,16 @@ const pwIn = z.object({ currentPassword: z.string().max(200), newPassword: z.str
 authed.post('/auth/change-password', async (c) => {
   const u = c.var.user;
   const i = parse(pwIn, await c.req.json().catch(() => ({})));
-  const row = await first<any>(c.env.DB, 'SELECT password_hash FROM users WHERE id = ?', u.id);
+  const row = await first<any>(c.env.DB, 'SELECT password_hash FROM users WHERE id = ? AND agency_id = ?', u.id, u.homeAgencyId);
   const v = await verifyPassword(i.currentPassword, row.password_hash);
   if (!v.ok) throw bad('Your current password is not right.', 'bad_current');
   const problem = passwordProblem(i.newPassword, u.email);
   if (problem) throw bad(problem);
   if (i.newPassword === i.currentPassword) throw bad('Choose a password you have not used just now.');
-  const tx = new Tx(c.env.DB, u);
-  tx.run(`UPDATE users SET password_hash = ?, must_change_password = 0, seq = ${SEQ}, updated_at = ? WHERE id = ?`, await hashPassword(i.newPassword, iterationsFor(c.env)), tx.at, u.id);
-  tx.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', u.id, u.sessionId); // sign out other devices
+  // Your own account lives in your own agency (homeAgencyId), even while the super user is viewing another agency.
+  const tx = new Tx(c.env.DB, u, u.homeAgencyId);
+  tx.run(`UPDATE users SET password_hash = ?, must_change_password = 0, seq = ${SEQ}, updated_at = ? WHERE id = ? AND agency_id = ?`, await hashPassword(i.newPassword, iterationsFor(c.env)), tx.at, u.id, tx.agency);
+  tx.run('DELETE FROM sessions WHERE user_id = ? AND agency_id = ? AND id <> ?', u.id, tx.agency, u.sessionId); // sign out other devices
   tx.audit('auth.change_password', 'user', u.id, null, null);
   await tx.commit();
   return c.json({ ok: true });
@@ -156,7 +168,10 @@ const body = (c: any) => c.req.json().catch(() => ({}));
 /** `me` rides along on every sync (even when nothing else changed) so a change to someone's permissions reaches their screen without a re-login. */
 api.get('/sync', async (c) => {
   const u = c.var.user;
-  return c.json({ ...(await syncSince(c.env.DB, u, Number(c.req.query('since') || 0))), me: { role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, isSuperuser: !!u.isSuper, perms: u.perms ?? {} } });
+  return c.json({
+    ...(await syncSince(c.env.DB, u, Number(c.req.query('since') || 0), c.req.query('agency'))), agencyId: u.agencyId,
+    me: { role: u.role, baseIds: u.baseIds, mechanicId: u.mechanicId, isSuperuser: !!u.isSuper, perms: u.perms ?? {}, agency: { id: u.agencyId, name: u.agencyName }, homeAgency: { id: u.homeAgencyId, name: u.homeAgencyName } },
+  });
 });
 
 /* vehicles */
@@ -215,7 +230,16 @@ api.post('/users/:id/reset-link', async (c) => c.json(await users.sendResetLink(
 api.post('/users/:id/deactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), false)));
 api.post('/users/:id/reactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), true)));
 
-/* backups (super user only) */
+/* agencies (super user only: every handler checks it and answers 403 to everyone else) */
+api.get('/agencies', async (c) => c.json(await agencies.listAgencies(c.env, c.var.user)));
+api.post('/agencies', async (c) => c.json(await agencies.createAgency(c.env, c.var.user, await body(c))));
+api.post('/agencies/back', async (c) => c.json(await agencies.backToHome(c)));
+api.patch('/agencies/:id', async (c) => c.json(await agencies.renameAgency(c.env, c.var.user, c.req.param('id'), await body(c))));
+api.post('/agencies/:id/open', async (c) => c.json(await agencies.openAgency(c, c.req.param('id'))));
+api.post('/agencies/:id/deactivate', async (c) => c.json(await agencies.setAgencyActive(c.env, c.var.user, c.req.param('id'), false)));
+api.post('/agencies/:id/reactivate', async (c) => c.json(await agencies.setAgencyActive(c.env, c.var.user, c.req.param('id'), true)));
+
+/* backups (super user only; they cover the whole database, all agencies) */
 const needBackups = (c: any) => { if (!c.var.user.isSuper) throw forbidden('Only the super user can use backups.'); };
 api.get('/admin/backups', async (c) => { needBackups(c); return c.json({ backups: await listBackups(c.env) }); });
 api.post('/admin/backups/step', async (c) => {
@@ -223,7 +247,7 @@ api.post('/admin/backups/step', async (c) => {
   const b = await body(c);
   const r = await backupStep(c.env, { force: !!b.force });
   if (r.status === 'done') {
-    const tx = new Tx(c.env.DB, c.var.user);
+    const tx = new Tx(c.env.DB, c.var.user); // recorded in the agency the super user is working in; the backup itself covers every agency
     tx.audit('backup.run', 'backup', r.date, null, { key: r.key });
     await tx.commit();
   }
@@ -239,13 +263,13 @@ api.get('/admin/backups/:date', async (c) => {
 });
 /* activity history (super user and system administrators; everyone else 403) */
 const needActivity = (c: any) => { if (!c.var.user.isSuper && c.var.user.role !== 'system_admin') throw forbidden(); };
-const activityList = async (c: any) => { needActivity(c); return c.json(await listActivity(c.env, new URL(c.req.url).searchParams)); };
+const activityList = async (c: any) => { needActivity(c); return c.json(await listActivity(c.env, c.var.user.agencyId, new URL(c.req.url).searchParams)); };
 api.get('/admin/activity', activityList);
 api.get('/admin/audit', activityList); // the original path, same answer
 api.get('/admin/activity/export', async (c) => {
   needActivity(c);
-  const r = await activityCsv(c.env, new URL(c.req.url).searchParams);
-  return new Response(r.body, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="gema-fleet-activity-${r.date}.csv"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Activity-Rows': String(r.rows), 'X-Activity-Truncated': r.truncated ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Activity-Rows, X-Activity-Truncated' } });
+  const r = await activityCsv(c.env, c.var.user.agencyId, new URL(c.req.url).searchParams);
+  return new Response(r.body, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="fleet-activity-${c.var.user.agencyId.toLowerCase()}-${r.date}.csv"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Activity-Rows': String(r.rows), 'X-Activity-Truncated': r.truncated ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Activity-Rows, X-Activity-Truncated' } });
 });
 
 authed.route('/', api);

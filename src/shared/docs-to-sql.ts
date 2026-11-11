@@ -15,6 +15,8 @@ export interface ConvertOptions {
   userIds?: Set<string>;
   /** Force every row to be flagged sample = 1 (used by seed:demo). */
   sample?: boolean;
+  /** The agency the rows belong to (default 'GEMA'). The agency's settings row has this as its id. */
+  agency?: string;
 }
 
 /** Order matters: parents before children. */
@@ -27,7 +29,13 @@ export function docsToStatements(data: DocMap, opts: ConvertOptions = {}): { stm
   const stmts: Stmt[] = [];
   const counts: Record<string, number> = {};
   const skipped: string[] = [];
-  const add = (sql: string, ...params: unknown[]) => stmts.push({ sql, params: params.map(n) });
+  const agency = (opts.agency ?? 'GEMA').toUpperCase();
+  /** Every row is written with its agency_id (appended to the column list and the values). */
+  const add = (sql: string, ...params: unknown[]) => {
+    const m = /^(\s*INSERT INTO \w+ \([^)]*)\)(\s*VALUES \()([\s\S]*)\)\s*$/.exec(sql);
+    if (!m) throw new Error('docsToStatements: unexpected statement ' + sql);
+    stmts.push({ sql: `${m[1]}, agency_id)${m[2]}${m[3]}, ?)`, params: [...params.map(n), agency] });
+  };
   const bump = (c: string) => (counts[c] = (counts[c] || 0) + 1);
 
   for (const coll of Object.keys(data)) if (!IMPORT_ORDER.includes(coll)) skipped.push(`collection "${coll}" is not imported`);
@@ -38,8 +46,8 @@ export function docsToStatements(data: DocMap, opts: ConvertOptions = {}): { stm
   }
   for (const d of data.settings || []) {
     bump('settings');
-    const { id, sample, ...rest } = d;
-    add(`INSERT INTO settings (id, data, sample, seq, created_at, updated_at) VALUES (?,?,?,${SEQ},?,?)`, id, JSON.stringify(rest), smp(d), now, now);
+    const { id: _ignored, sample, ...rest } = d;
+    add(`INSERT INTO settings (id, data, sample, seq, created_at, updated_at) VALUES (?,?,?,${SEQ},?,?)`, agency, JSON.stringify(rest), smp(d), now, now); // one row per agency; its id is the agency code
   }
   for (const d of data.pmPrograms || []) {
     bump('pmPrograms');

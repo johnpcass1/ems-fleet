@@ -76,26 +76,32 @@ export function getMailer(env: Env): Mailer | null {
 const he = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 export const setPasswordLink = (env: Pick<Env, 'APP_URL'>, token: string) => `${env.APP_URL.replace(/\/+$/, '')}/set-password#t=${token}`;
 
-function wrap(paragraphs: string[], link: string, linkLabel: string, after: string[]) {
-  const text = [...paragraphs, `${linkLabel}\n${link}`, ...after, '-- GEMA Fleet'].join('\n\n');
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1b1f23;max-width:540px">${paragraphs.map((p) => `<p>${he(p)}</p>`).join('')}<p><a href="${he(link)}" style="display:inline-block;padding:10px 16px;background:#b3261e;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">${he(linkLabel)}</a></p><p style="font-size:13px;color:#555">If the button does not work, copy this address into your browser:<br>${he(link)}</p>${after.map((p) => `<p style="font-size:13px;color:#555">${he(p)}</p>`).join('')}<p style="font-size:13px;color:#555">GEMA Fleet</p></div>`;
+export interface MailAgency { id: string; name: string }
+/** "<Agency name> Fleet": what the emails call the product, so one agency's people never see another agency's name. */
+const product = (a: MailAgency) => `${a.name} Fleet`;
+
+function wrap(a: MailAgency, paragraphs: string[], link: string, linkLabel: string, after: string[]) {
+  const text = [...paragraphs, `${linkLabel}\n${link}`, ...after, `Agency ID (needed to log in): ${a.id}`, `-- ${product(a)}`].join('\n\n');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1b1f23;max-width:540px">${paragraphs.map((p) => `<p>${he(p)}</p>`).join('')}<p><a href="${he(link)}" style="display:inline-block;padding:10px 16px;background:#b3261e;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold">${he(linkLabel)}</a></p><p style="font-size:13px;color:#555">If the button does not work, copy this address into your browser:<br>${he(link)}</p>${after.map((p) => `<p style="font-size:13px;color:#555">${he(p)}</p>`).join('')}<p style="font-size:13px;color:#555">Agency ID (needed to log in): <b>${he(a.id)}</b></p><p style="font-size:13px;color:#555">${he(product(a))}</p></div>`;
   return { text, html };
 }
 
-export function inviteMessage(o: { to: string; name: string; inviter: string; role: Role | string; link: string }): MailMessage {
+export function inviteMessage(o: { to: string; name: string; inviter: string; role: Role | string; link: string; agency: MailAgency }): MailMessage {
   const role = ROLES[o.role as Role] || String(o.role);
   const m = wrap(
-    [`Hi ${o.name},`, `${o.inviter} has set up a GEMA Fleet account for you (role: ${role}). Choose your password to get started.`],
+    o.agency,
+    [`Hi ${o.name},`, `${o.inviter} has set up a ${product(o.agency)} account for you (role: ${role}). Choose your password to get started.`],
     o.link, 'Choose your password',
     ['This link works once and expires in 7 days. If it has expired, ask your fleet manager to send a new one.', 'If you were not expecting this, you can ignore this email.'],
   );
-  return { to: o.to, subject: 'Set up your GEMA Fleet account', ...m };
+  return { to: o.to, subject: `Set up your ${product(o.agency)} account`, ...m };
 }
-export function resetMessage(o: { to: string; name: string; link: string }): MailMessage {
+export function resetMessage(o: { to: string; name: string; link: string; agency: MailAgency }): MailMessage {
   const m = wrap(
-    [`Hi ${o.name},`, 'Someone asked to reset the password for your GEMA Fleet account. Use the link below to choose a new one.'],
+    o.agency,
+    [`Hi ${o.name},`, `Someone asked to reset the password for your ${product(o.agency)} account. Use the link below to choose a new one.`],
     o.link, 'Reset your password',
     ['This link works once and expires in 1 hour.', 'If you did not ask for this, you can ignore this email. Your password has not changed.'],
   );
-  return { to: o.to, subject: 'Reset your GEMA Fleet password', ...m };
+  return { to: o.to, subject: `Reset your ${product(o.agency)} password`, ...m };
 }

@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import type { Env } from './env';
-import { isSuperuserEmail } from './env';
+import { isSuperuserAccount } from './env';
 import { all } from './db';
 import { bad, zDate } from './http';
 import { ACTIVITY_CSV_HEADER, CATEGORY_KEYS, NO_LOOKUP, activityCsvRow, categoryOf, gyDayEndISO, gyDayStartISO, rulesFor, sanitizeAudit, type Lookup } from '../shared/activity';
@@ -53,9 +53,10 @@ function whereFor(sp: URLSearchParams) {
 }
 
 const SELECT = `SELECT a.id, a.at, a.user_id, a.user_email, a.action, a.entity_type, a.entity_id, a.before_json, a.after_json,
-  u.name AS u_name, u.email AS u_email, u.role AS u_role, u.active AS u_active
+  u.name AS u_name, u.email AS u_email, u.role AS u_role, u.active AS u_active, u.agency_id AS u_agency
   FROM audit_log a LEFT JOIN users u ON u.id = a.user_id`;
-const JOIN_ITEMS = " LEFT JOIN vehicles v ON a.entity_type = 'vehicle' AND v.id = a.entity_id LEFT JOIN work_orders wo ON a.entity_type = 'work_order' AND wo.id = a.entity_id";
+// The person is looked up by id only: the rows are already limited to one agency, and the only outsider who can appear in them is the super user viewing it.
+const JOIN_ITEMS = " LEFT JOIN vehicles v ON a.entity_type = 'vehicle' AND v.id = a.entity_id AND v.agency_id = a.agency_id LEFT JOIN work_orders wo ON a.entity_type = 'work_order' AND wo.id = a.entity_id AND wo.agency_id = a.agency_id";
 
 const parseJson = (s: string | null) => { if (!s) return null; try { return sanitizeAudit(JSON.parse(s)); } catch { return null; } };
 
@@ -66,17 +67,19 @@ export interface ActivityRow {
 }
 function shape(env: Env, r: any): ActivityRow {
   // The CURRENT name (people get renamed or deactivated); if the account is gone, the stored id.
-  const actor = r.user_id ? { id: r.user_id, name: r.u_name ?? r.user_id, email: r.u_email ?? r.user_email ?? null, role: r.u_role ?? null, active: r.u_active == null ? false : !!r.u_active, isSuper: isSuperuserEmail(env, r.u_email ?? r.user_email) } : null;
+  const actor = r.user_id ? { id: r.user_id, name: r.u_name ?? r.user_id, email: r.u_email ?? r.user_email ?? null, role: r.u_role ?? null, active: r.u_active == null ? false : !!r.u_active, isSuper: isSuperuserAccount(env, r.u_email, r.u_agency) } : null;
   return { id: r.id, at: r.at, action: r.action, category: categoryOf(r.action, r.entity_type), entityType: r.entity_type, entityId: r.entity_id, before: parseJson(r.before_json), after: parseJson(r.after_json), email: r.user_email ?? null, actor };
 }
 
-async function fetchRows(env: Env, sp: URLSearchParams, limit: number, cursor: boolean) {
+async function fetchRows(env: Env, agency: string, sp: URLSearchParams, limit: number, cursor: boolean) {
   const { w, p, joinNames } = whereFor(sp);
+  w.unshift('a.agency_id = ?'); // every read of the audit log is limited to one agency
+  p.unshift(agency);
   if (cursor) {
     const b = blank(sp.get('before'));
     if (b !== undefined) {
       if (!/^\d{1,15}$/.test(b)) throw bad('before must be an activity id.');
-      const at = await all<{ at: string }>(env.DB, 'SELECT at FROM audit_log WHERE id = ?', Number(b));
+      const at = await all<{ at: string }>(env.DB, 'SELECT at FROM audit_log WHERE id = ? AND agency_id = ?', Number(b), agency);
       if (!at.length) throw bad('before: unknown activity id.');
       w.push('(a.at < ? OR (a.at = ? AND a.id < ?))');
       p.push(at[0].at, at[0].at, Number(b));
@@ -87,9 +90,9 @@ async function fetchRows(env: Env, sp: URLSearchParams, limit: number, cursor: b
 }
 
 /** GET /api/admin/activity: one page, newest first. `before=<id of the last row you have>` gets the next page. */
-export async function listActivity(env: Env, sp: URLSearchParams) {
+export async function listActivity(env: Env, agency: string, sp: URLSearchParams) {
   const lim = Math.min(200, Math.max(1, Number(sp.get('limit') || PAGE_SIZE) || PAGE_SIZE));
-  const rows = await fetchRows(env, sp, lim + 1, true);
+  const rows = await fetchRows(env, agency, sp, lim + 1, true);
   const more = rows.length > lim;
   const page = rows.slice(0, lim).map((r) => shape(env, r));
   return { rows: page, hasMore: more, nextBefore: more && page.length ? page[page.length - 1].id : null };
@@ -97,30 +100,30 @@ export async function listActivity(env: Env, sp: URLSearchParams) {
 
 /* ---------- CSV ---------- */
 const chunk = <T>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
-async function byIds(env: Env, table: string, cols: string, ids: string[]) {
+async function byIds(env: Env, agency: string, table: string, cols: string, ids: string[]) {
   const out: any[] = [];
-  for (const c of chunk([...new Set(ids)], 80)) out.push(...(await all<any>(env.DB, `SELECT ${cols} FROM ${table} WHERE id IN (${c.map(() => '?').join(',')})`, ...c)));
+  for (const c of chunk([...new Set(ids)], 80)) out.push(...(await all<any>(env.DB, `SELECT ${cols} FROM ${table} WHERE agency_id = ? AND id IN (${c.map(() => '?').join(',')})`, agency, ...c)));
   return out;
 }
 /** Names for the sentences in the export, read with a handful of queries (small tables whole; work orders and problems only the ones the rows mention). */
-async function lookupFor(env: Env, rows: ActivityRow[]): Promise<Lookup> {
+async function lookupFor(env: Env, agency: string, rows: ActivityRow[]): Promise<Lookup> {
   const [bases, vehicles, users, mechanics, parts] = await Promise.all([
-    all<any>(env.DB, 'SELECT id, name FROM bases'), all<any>(env.DB, 'SELECT id, unit FROM vehicles'), all<any>(env.DB, 'SELECT id, name FROM users'),
-    all<any>(env.DB, 'SELECT id, name FROM mechanics'), all<any>(env.DB, 'SELECT id, number FROM parts'),
+    all<any>(env.DB, 'SELECT id, name FROM bases WHERE agency_id = ?', agency), all<any>(env.DB, 'SELECT id, unit FROM vehicles WHERE agency_id = ?', agency), all<any>(env.DB, 'SELECT id, name FROM users WHERE agency_id = ?', agency),
+    all<any>(env.DB, 'SELECT id, name FROM mechanics WHERE agency_id = ?', agency), all<any>(env.DB, 'SELECT id, number FROM parts WHERE agency_id = ?', agency),
   ]);
-  const wos = await byIds(env, 'work_orders', 'id, number', rows.filter((r) => r.entityType === 'work_order' && r.entityId).map((r) => r.entityId!));
-  const issues = await byIds(env, 'issues', 'id, title, vehicle_id', rows.filter((r) => (r.entityType === 'issue') && r.entityId).map((r) => r.entityId!));
+  const wos = await byIds(env, agency, 'work_orders', 'id, number', rows.filter((r) => r.entityType === 'work_order' && r.entityId).map((r) => r.entityId!));
+  const issues = await byIds(env, agency, 'issues', 'id, title, vehicle_id', rows.filter((r) => (r.entityType === 'issue') && r.entityId).map((r) => r.entityId!));
   const m = (xs: any[], f: (x: any) => any) => new Map(xs.map((x) => [x.id, f(x)]));
   const B = m(bases, (x) => x.name), V = m(vehicles, (x) => x.unit), U = m(users, (x) => x.name), M = m(mechanics, (x) => x.name), P = m(parts, (x) => x.number), W = m(wos, (x) => x.number), I = m(issues, (x) => ({ title: x.title, vehicleId: x.vehicle_id }));
   return { ...NO_LOOKUP, base: (id) => B.get(id) ?? null, unit: (id) => V.get(id) ?? null, person: (id) => U.get(id) ?? null, mechanic: (id) => M.get(id) ?? null, part: (id) => P.get(id) ?? null, wo: (id) => W.get(id) ?? null, issue: (id) => I.get(id) ?? null };
 }
 
 /** GET /api/admin/activity/export: the same filters, up to EXPORT_MAX rows (newest first), as CSV. */
-export async function activityCsv(env: Env, sp: URLSearchParams) {
-  const raw = await fetchRows(env, sp, EXPORT_MAX + 1, false);
+export async function activityCsv(env: Env, agency: string, sp: URLSearchParams) {
+  const raw = await fetchRows(env, agency, sp, EXPORT_MAX + 1, false);
   const truncated = raw.length > EXPORT_MAX;
   const rows = raw.slice(0, EXPORT_MAX).map((r) => shape(env, r));
-  const L = await lookupFor(env, rows);
+  const L = await lookupFor(env, agency, rows);
   const body = '﻿' + toCsv([ACTIVITY_CSV_HEADER, ...rows.map((r) => activityCsvRow(r, L))]);
   return { body, rows: rows.length, truncated, date: gyDate(Date.now()) };
 }

@@ -46,6 +46,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   { prefix: 'features.', category: 'settings' },
   { prefix: 'base.', category: 'settings' },
   { prefix: 'sample.', category: 'settings' },
+  { prefix: 'agency.', category: 'settings' },
   { prefix: 'auth.', category: 'sign_ins' },
   { prefix: 'backup.', category: 'backups' },
 ];
@@ -197,6 +198,14 @@ const DESCRIBE: Record<string, Describer> = {
   'auth.change_password': () => S('Changed their own password'),
   'auth.set_password': (r) => S(r.after?.how === 'invite' ? 'Chose a password from an invite link' : 'Chose a new password from a reset link'),
   'auth.forgot_password': () => S('Asked for a password reset link'),
+
+  /* agencies (super user) */
+  'agency.create': (r) => S('Added the agency ', r.after?.name || r.entityId || ''),
+  'agency.rename': (r) => S('Renamed the agency ', r.before?.name || '', ' to ', r.after?.name || ''),
+  'agency.deactivate': () => S('Deactivated this agency'),
+  'agency.reactivate': () => S('Reactivated this agency'),
+  'agency.open': () => S('Opened this agency as the super user'),
+  'agency.close': () => S('Went back to their own agency'),
 
   /* people and permissions */
   'user.create': (r, L) => S('Added ', userSeg(L, r.entityId, r.after?.name), r.after?.role ? ` as ${roleLabel(r.after.role)}` : ''),

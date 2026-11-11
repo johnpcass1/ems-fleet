@@ -13,8 +13,8 @@ import { bad, forbidden, notFound, parse } from './http';
 import { ROLE_LIST } from '../shared/constants';
 import { can, cleanRolePerms, editableRoles, hasPerm, NEVER_GRANTABLE, PERM_KEYS, roleHas, SUPER_ONLY_KEYS, type Actor } from '../shared/perm';
 
-async function loadSettingsRaw(env: Env) {
-  const old = await first<any>(env.DB, "SELECT data FROM settings WHERE id = 'main'");
+async function loadSettingsRaw(env: Env, agency: string) {
+  const old = await first<any>(env.DB, 'SELECT data FROM settings WHERE id = ? AND agency_id = ?', agency, agency);
   let cur: any = {};
   try { cur = old ? JSON.parse(old.data) : {}; } catch { /* ignore */ }
   return cur;
@@ -37,7 +37,7 @@ function checkGrants(actor: Actor, role: string, next: Record<string, boolean>, 
 
 /** Write several roles at once (role -> its new differences from the built-in defaults), in one transaction with one audit row per role that changed. */
 async function applyMany(env: Env, actor: Actor, changes: Record<string, Record<string, boolean>>, action: (role: string, next: Record<string, boolean>) => string) {
-  const cur = await loadSettingsRaw(env);
+  const cur = await loadSettingsRaw(env, actor.agencyId);
   const all = cleanRolePerms(cur.rolePerms);
   const merged: Record<string, any> = { ...all };
   const changed: [string, Record<string, boolean>, Record<string, boolean>][] = [];
@@ -50,9 +50,9 @@ async function applyMany(env: Env, actor: Actor, changes: Record<string, Record<
   if (changed.length) {
     const tx = new Tx(env.DB, actor);
     tx.run(
-      `INSERT INTO settings (id, data, sample, seq, created_at, updated_at) VALUES ('main', ?, 0, ${SEQ}, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET data=excluded.data, seq=excluded.seq, updated_at=excluded.updated_at`,
-      JSON.stringify({ ...cur, rolePerms: merged }), tx.at, tx.at,
+      `INSERT INTO settings (id, data, sample, seq, created_at, updated_at, agency_id) VALUES (?, ?, 0, ${SEQ}, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET data=excluded.data, seq=excluded.seq, updated_at=excluded.updated_at WHERE settings.agency_id = excluded.agency_id`,
+      tx.agency, JSON.stringify({ ...cur, rolePerms: merged }), tx.at, tx.at, tx.agency,
     );
     for (const [role, before, next] of changed) tx.audit(action(role, next), 'role', role, { role, overrides: before }, { role, overrides: next });
     await tx.commit();

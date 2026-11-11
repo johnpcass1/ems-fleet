@@ -32,7 +32,9 @@
     "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
     "PBKDF2_ITERATIONS": "20000",
     // Super user(s): comma-separated emails. Changed only by a code update (see docs/HANDOVER.md). Empty means nobody is a super user.
-    "SUPERUSER_EMAILS": "johnpcass3@gmail.com"
+    "SUPERUSER_EMAILS": "johnpcass3@gmail.com",
+    // The home agency: a super user's email only counts as super on an account in this agency, and only this agency can hold such an email.
+    "SUPERUSER_AGENCY": "GEMA"
   },
   "observability": { "enabled": true },
   "env": {
@@ -61,7 +63,8 @@
         "APP_URL": "https://gema-fleet-staging.example.workers.dev",
         "MAIL_FROM": "GEMA Fleet <no-reply@example.org>",
         "PBKDF2_ITERATIONS": "20000",
-        "SUPERUSER_EMAILS": "johnpcass3@gmail.com"
+        "SUPERUSER_EMAILS": "johnpcass3@gmail.com",
+        "SUPERUSER_AGENCY": "GEMA"
       }
     }
   }

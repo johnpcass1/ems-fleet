@@ -55,7 +55,7 @@ describe('invite by email', () => {
     expect(m.body.html).toContain('Fran Manager');
     expect(m.body.text).toContain('https://gema-fleet.example.workers.dev/set-password#t=');
     const info = await api('POST', '/api/auth/token-info', { body: { token: tokenFrom(m) } });
-    expect(info.json).toEqual({ valid: true, purpose: 'invite', email: 'pat@gema.test', name: 'Pat Crew' });
+    expect(info.json).toEqual({ valid: true, purpose: 'invite', email: 'pat@gema.test', name: 'Pat Crew', agencyId: 'GEMA', agencyName: 'GEMA' });
   });
   it('stores only a hash, and the invite expires in 7 days', async () => {
     await invite(await admin());
@@ -71,7 +71,7 @@ describe('invite by email', () => {
     const fm = await admin();
     await invite(fm);
     for (const pw of ['', 'unusable$', PASSWORD, 'pat-start-pass-1', 'password123']) {
-      expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: pw } })).status).toBe(401);
+      expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: pw } })).status).toBe(401);
     }
     const list = await api('GET', '/api/users', { cookie: fm });
     expect(list.json.users.find((u: any) => u.email === 'pat@gema.test')).toMatchObject({ invited: true, mustChangePassword: true });
@@ -86,7 +86,7 @@ describe('invite by email', () => {
     expect(r.json.user).toMatchObject({ email: 'pat@gema.test', role: 'crew', mustChangePassword: false });
     const cookie = cookieOf(r);
     expect((await api('GET', '/api/sync', { cookie })).status).toBe(200);
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: 'pat-chosen-pass-1' } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: 'pat-chosen-pass-1' } })).status).toBe(200);
     const list = await api('GET', '/api/users', { cookie: fm });
     expect(list.json.users.find((u: any) => u.email === 'pat@gema.test')).toMatchObject({ invited: false, mustChangePassword: false });
     // second use is refused
@@ -94,7 +94,7 @@ describe('invite by email', () => {
     expect(again.status).toBe(400);
     expect(again.json.code).toBe('token_used');
     expect((await api('POST', '/api/auth/token-info', { body: { token } })).json).toMatchObject({ valid: false, reason: 'used', purpose: 'invite' });
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: 'another-pass-77' } })).status).toBe(401);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: 'another-pass-77' } })).status).toBe(401);
   });
   it('rejects weak passwords without using up the link', async () => {
     await invite(await admin());
@@ -195,27 +195,27 @@ describe('reset links', () => {
     expect(sent[0].body.to).toEqual(['rita@gema.test']);
     const tk = await row("SELECT * FROM account_tokens WHERE purpose = 'reset'");
     expect((Date.parse(tk.expires_at) - Date.parse(tk.created_at)) / 60000).toBeCloseTo(60, 1);
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } })).status).toBe(200);
   });
   it('using a reset link signs out every other session, sets the new password and logs in', async () => {
     const u = await makeUser('crew', { email: 'rita@gema.test' });
-    const old = cookieOf(await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } }));
+    const old = cookieOf(await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } }));
     expect((await api('GET', '/api/sync', { cookie: old })).status).toBe(200);
-    await api('POST', '/api/auth/forgot', { body: { email: u.email } });
+    await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: u.email } });
     await waitSent(1);
     const r = await api('POST', '/api/auth/set-password', { body: { token: lastToken(), newPassword: 'rita-new-pass-123' } });
     expect(r.status).toBe(200);
     expect((await api('GET', '/api/sync', { cookie: old })).status).toBe(401);
     expect((await api('GET', '/api/sync', { cookie: cookieOf(r) })).status).toBe(200);
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } })).status).toBe(401);
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: 'rita-new-pass-123' } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } })).status).toBe(401);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: 'rita-new-pass-123' } })).status).toBe(200);
   });
   it('a newer reset link supersedes the older one', async () => {
     const u = await makeUser('crew', { email: 'rita@gema.test' });
-    await api('POST', '/api/auth/forgot', { body: { email: u.email } });
+    await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: u.email } });
     await waitSent(1);
     const t1 = lastToken();
-    await api('POST', '/api/auth/forgot', { body: { email: u.email } });
+    await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: u.email } });
     await waitSent(2);
     const t2 = lastToken();
     expect(t2).not.toBe(t1);
@@ -224,7 +224,7 @@ describe('reset links', () => {
   });
   it('an expired reset link is refused (and says it is a reset link)', async () => {
     const u = await makeUser('crew', { email: 'rita@gema.test' });
-    await api('POST', '/api/auth/forgot', { body: { email: u.email } });
+    await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: u.email } });
     await waitSent(1);
     await E.DB.prepare('UPDATE account_tokens SET expires_at = ?').bind(new Date(Date.now() - 1).toISOString()).run();
     expect((await api('POST', '/api/auth/token-info', { body: { token: lastToken() } })).json).toEqual({ valid: false, reason: 'expired', purpose: 'reset' });
@@ -234,10 +234,10 @@ describe('reset links', () => {
 describe('forgot password (public)', () => {
   it('answers the same for unknown and known addresses; only the known one is emailed', async () => {
     await makeUser('crew', { email: 'rita@gema.test' });
-    const a = await api('POST', '/api/auth/forgot', { body: { email: 'nobody@gema.test' } });
+    const a = await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'nobody@gema.test' } });
     await vi.waitFor(async () => expect(await row('SELECT COUNT(*) AS n FROM auth_throttle WHERE kind = ?', 'forgot_email')).toMatchObject({ n: 1 }));
     expect(sent.length).toBe(0);
-    const b = await api('POST', '/api/auth/forgot', { body: { email: 'RITA@gema.test' } });
+    const b = await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'RITA@gema.test' } });
     await waitSent(1);
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
@@ -247,29 +247,29 @@ describe('forgot password (public)', () => {
     expect(await rows("SELECT * FROM audit_log WHERE action = 'auth.forgot_password'")).toHaveLength(1);
   });
   it('is CSRF protected like other POSTs', async () => {
-    expect((await api('POST', '/api/auth/forgot', { body: { email: 'a@b.co' }, noCsrf: true })).status).toBe(403);
-    expect((await api('POST', '/api/auth/forgot', { body: { email: 'not an email' } })).status).toBe(400);
+    expect((await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'a@b.co' }, noCsrf: true })).status).toBe(403);
+    expect((await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'not an email' } })).status).toBe(400);
   });
   it('sends nothing to deactivated accounts', async () => {
     await makeUser('crew', { email: 'gone@gema.test', active: false });
-    expect((await api('POST', '/api/auth/forgot', { body: { email: 'gone@gema.test' } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'gone@gema.test' } })).status).toBe(200);
     await vi.waitFor(async () => expect(await row('SELECT COUNT(*) AS n FROM auth_throttle WHERE kind = ?', 'forgot_email')).toMatchObject({ n: 1 }));
     expect(sent.length).toBe(0);
   });
   it('allows 3 emails per address per hour; extra requests still answer 200 but send nothing', async () => {
     await makeUser('crew', { email: 'rita@gema.test' });
-    for (let i = 1; i <= 3; i++) { await api('POST', '/api/auth/forgot', { body: { email: 'rita@gema.test' } }); await waitSent(i); }
-    const r = await api('POST', '/api/auth/forgot', { body: { email: 'rita@gema.test' } });
+    for (let i = 1; i <= 3; i++) { await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'rita@gema.test' } }); await waitSent(i); }
+    const r = await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'rita@gema.test' } });
     expect(r.status).toBe(200);
     expect(r.json.message).toBe(FORGOT_MESSAGE);
     await vi.waitFor(async () => expect(await row('SELECT COUNT(*) AS n FROM auth_throttle WHERE kind = ?', 'forgot_email')).toMatchObject({ n: 4 }));
     expect(sent.length).toBe(3);
   });
   it('limits each network address to 10 requests per hour', async () => {
-    for (let i = 0; i < 10; i++) expect((await api('POST', '/api/auth/forgot', { body: { email: `x${i}@gema.test` }, headers: { 'CF-Connecting-IP': '203.0.113.9' } })).status).toBe(200);
-    const r = await api('POST', '/api/auth/forgot', { body: { email: 'x11@gema.test' }, headers: { 'CF-Connecting-IP': '203.0.113.9' } });
+    for (let i = 0; i < 10; i++) expect((await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: `x${i}@gema.test` }, headers: { 'CF-Connecting-IP': '203.0.113.9' } })).status).toBe(200);
+    const r = await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'x11@gema.test' }, headers: { 'CF-Connecting-IP': '203.0.113.9' } });
     expect(r.status).toBe(429);
-    expect((await api('POST', '/api/auth/forgot', { body: { email: 'x11@gema.test' }, headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'x11@gema.test' }, headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status).toBe(200);
     const t = await rows('SELECT k FROM auth_throttle');
     expect(JSON.stringify(t)).not.toContain('203.0.113');
     expect(JSON.stringify(t)).not.toContain('gema.test');
@@ -277,7 +277,7 @@ describe('forgot password (public)', () => {
   it('does nothing when email is not set up, but still answers 200', async () => {
     delete (E as any).RESEND_API_KEY;
     await makeUser('crew', { email: 'rita@gema.test' });
-    const r = await api('POST', '/api/auth/forgot', { body: { email: 'rita@gema.test' } });
+    const r = await api('POST', '/api/auth/forgot', { body: { agencyId: 'GEMA', email: 'rita@gema.test' } });
     expect(r.json.message).toBe(FORGOT_MESSAGE);
     await vi.waitFor(async () => expect(await row('SELECT COUNT(*) AS n FROM auth_throttle WHERE kind = ?', 'forgot_email')).toMatchObject({ n: 1 }));
     expect(sent.length).toBe(0);

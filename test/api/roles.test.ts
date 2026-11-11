@@ -5,7 +5,7 @@ let fm: string, admin: string, su: string, crew: string, crewId: string, crew2: 
 const putRole = (cookie: string, role: string, overrides: any) => api('PUT', `/api/roles/${role}/permissions`, { cookie, body: { overrides } });
 const resetRole = (cookie: string, role: string) => api('POST', `/api/roles/${role}/reset`, { cookie });
 const perms = (cookie: string, id: string, overrides: Record<string, boolean>) => api('POST', `/api/users/${id}/permissions`, { cookie, body: { overrides } });
-const stored = async () => JSON.parse((await row("SELECT data FROM settings WHERE id = 'main'")).data);
+const stored = async () => JSON.parse((await row("SELECT data FROM settings WHERE id = 'GEMA'")).data);
 const issue = (cookie: string) => api('POST', '/api/issues', { cookie, body: { vehicleId: 'v-01', title: 'Mirror loose', severity: 'minor' } });
 
 beforeEach(async () => {
@@ -33,7 +33,7 @@ describe('role-level permissions', () => {
     expect((await syncAll(mech, m0.cursor)).me.perms.report).toBe(true);
     expect((await issue(mech)).status).toBe(200);
     // the saved role change is in the synced settings so the Roles screen can show it
-    expect(s1.data.settings.find((x: any) => x.id === 'main').rolePerms).toEqual({ crew: { report: false } });
+    expect(s1.data.settings.find((x: any) => x.id === 'GEMA').rolePerms).toEqual({ crew: { report: false } });
     expect((await api('GET', '/api/auth/me', { cookie: crew })).json.user.perms.report).toBe(false);
   });
   it('can grant things beyond the built-in default, and only stores differences from it', async () => {
@@ -101,7 +101,7 @@ describe('role-level permissions', () => {
   });
   it('a stored backups entry in rolePerms is ignored', async () => {
     const cur = await stored();
-    await E.DB.prepare("UPDATE settings SET data = ? WHERE id = 'main'").bind(JSON.stringify({ ...cur, rolePerms: { crew: { backups: true, report: false } } })).run();
+    await E.DB.prepare("UPDATE settings SET data = ? WHERE id = 'GEMA'").bind(JSON.stringify({ ...cur, rolePerms: { crew: { backups: true, report: false } } })).run();
     expect((await api('GET', '/api/admin/backups', { cookie: crew })).status).toBe(403);
     expect((await api('GET', '/api/auth/me', { cookie: crew })).json.user.perms).toMatchObject({ backups: false, report: false });
   });
@@ -138,7 +138,7 @@ describe('role-level permissions', () => {
   it('the dispatcher feed does not carry role permissions', async () => {
     await putRole(su, 'crew', { report: false });
     const d = (await as('dispatcher')).cookie;
-    const s = (await syncAll(d)).data.settings.find((x: any) => x.id === 'main');
+    const s = (await syncAll(d)).data.settings.find((x: any) => x.id === 'GEMA');
     expect(s.rolePerms).toBeUndefined();
   });
 });

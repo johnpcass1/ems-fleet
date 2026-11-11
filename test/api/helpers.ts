@@ -22,17 +22,17 @@ export async function api(method: string, path: string, opts: { body?: any; cook
 }
 
 let n = 0;
-export async function makeUser(role: string, o: { email?: string; baseIds?: string[]; mechanicId?: string | null; name?: string; mustChange?: boolean; active?: boolean } = {}) {
+export async function makeUser(role: string, o: { email?: string; baseIds?: string[]; mechanicId?: string | null; name?: string; mustChange?: boolean; active?: boolean; agency?: string } = {}) {
   const k = ++n;
   const email = o.email ?? `${role}${k}@gema.test`;
   const id = `u-${role}-${k}`;
   const now = new Date().toISOString();
   await E.DB.batch([
     E.DB.prepare('UPDATE counter SET v = v + 1 WHERE id = 1'),
-    E.DB.prepare(`INSERT INTO users (id, email, name, role, base_ids, mechanic_id, password_hash, active, must_change_password, seq, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,(SELECT v FROM counter),?,?)`)
-      .bind(id, email, o.name ?? `Test ${role}`, role, JSON.stringify(o.baseIds ?? []), o.mechanicId ?? null, await hashPassword(PASSWORD, 1000), o.active === false ? 0 : 1, o.mustChange ? 1 : 0, now, now),
+    E.DB.prepare(`INSERT INTO users (id, email, name, role, base_ids, mechanic_id, password_hash, active, must_change_password, seq, created_at, updated_at, agency_id) VALUES (?,?,?,?,?,?,?,?,?,(SELECT v FROM counter),?,?,?)`)
+      .bind(id, email, o.name ?? `Test ${role}`, role, JSON.stringify(o.baseIds ?? []), o.mechanicId ?? null, await hashPassword(PASSWORD, 1000), o.active === false ? 0 : 1, o.mustChange ? 1 : 0, now, now, o.agency ?? 'GEMA'),
   ]);
-  return { id, email, password: PASSWORD, role };
+  return { id, email, password: PASSWORD, role, agency: o.agency ?? 'GEMA' };
 }
 export function cookieOf(res: Res): string {
   const sc = res.headers.get('set-cookie') || '';
@@ -40,8 +40,8 @@ export function cookieOf(res: Res): string {
   if (!m) throw new Error('no session cookie in response: ' + sc);
   return 'gf_session=' + m[1];
 }
-export async function loginAs(u: { email: string; password: string }) {
-  const r = await api('POST', '/api/auth/login', { body: { email: u.email, password: u.password } });
+export async function loginAs(u: { email: string; password: string; agency?: string }, agency?: string) {
+  const r = await api('POST', '/api/auth/login', { body: { agencyId: agency ?? u.agency ?? 'GEMA', email: u.email, password: u.password } });
   if (r.status !== 200) throw new Error('login failed ' + JSON.stringify(r.json));
   return cookieOf(r);
 }
@@ -71,7 +71,7 @@ export const byId = (list: any[], id: string) => list.find((x) => x.id === id);
 export const SUPER_EMAIL = 'johnpcass3@gmail.com';
 /** Log in as the super user (creating the account on first use in a test). */
 export async function superCookie(): Promise<string> {
-  const have = await E.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(SUPER_EMAIL).first();
+  const have = await E.DB.prepare("SELECT 1 FROM users WHERE email = ? AND agency_id = 'GEMA'").bind(SUPER_EMAIL).first();
   if (!have) await makeUser('system_admin', { email: SUPER_EMAIL, name: 'Super User' });
   return loginAs({ email: SUPER_EMAIL, password: PASSWORD });
 }
@@ -79,4 +79,11 @@ export async function superCookie(): Promise<string> {
 export async function setUploads(_ignored: string | null, on = true) {
   const r = await api('PUT', '/api/features', { cookie: await superCookie(), body: { uploads: on } });
   if (r.status !== 200) throw new Error('could not set uploads ' + JSON.stringify(r.json));
+}
+
+/** Add agency `code` through the API as the super user, with its first administrator. Returns the admin's login details. */
+export async function makeAgency(code: string, name = 'Agency ' + code, adminEmail = `admin@${code.toLowerCase()}.test`) {
+  const r = await api('POST', '/api/agencies', { cookie: await superCookie(), body: { code, name, admin: { name: 'Admin ' + code, email: adminEmail, password: PASSWORD } } });
+  if (r.status !== 200) throw new Error('could not create agency ' + JSON.stringify(r.json));
+  return { agency: code, email: adminEmail, password: PASSWORD, id: r.json.adminId as string };
 }

@@ -1,7 +1,7 @@
 /**
  * Imports data exported from the prototype: a folder with one sub-folder per collection and one JSON file per record,
  * or a single JSON file shaped { "vehicles": [...], "bases": [...] }.
- *   npm run import:prototype -- ./export-folder [--remote] [--env staging] [--keep-sample]
+ *   npm run import:prototype -- ./export-folder [--agency CODE] [--remote] [--env staging] [--keep-sample]
  * Records keep their ids. Importing twice fails on the duplicate ids, which protects you from doubling the data.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -33,9 +33,12 @@ function load(p: string): DocMap {
 }
 const data = load(src);
 if (!flags['keep-sample']) for (const c of Object.keys(data)) data[c] = data[c].filter((d: any) => !d.sample);
-console.log('Target:', describe(t));
-const userIds = new Set<string>(query('SELECT id FROM users', t).map((r) => r.id));
-const { stmts, counts, skipped } = docsToStatements(data, { userIds });
+const agency = String(typeof flags.agency === 'string' ? flags.agency : 'GEMA').trim().toUpperCase();
+if (!/^[A-Z0-9-]{2,20}$/.test(agency)) { console.error('The Agency ID must be 2 to 20 characters: letters, numbers or hyphens.'); process.exit(1); }
+console.log('Target:', describe(t), '- agency', agency);
+if (!query(`SELECT 1 AS x FROM agencies WHERE id = '${agency}'`, t).length) { console.error(`There is no agency "${agency}".`); process.exit(1); }
+const userIds = new Set<string>(query(`SELECT id FROM users WHERE agency_id = '${agency}'`, t).map((r) => r.id));
+const { stmts, counts, skipped } = docsToStatements(data, { userIds, agency });
 if (!stmts.length) { console.log('Nothing to import.'); process.exit(0); }
 const sql = ['UPDATE counter SET v = v + 1 WHERE id = 1;', ...stmts.map((s) => renderSql(s))].join('\n');
 execFile(sql, t);
