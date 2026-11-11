@@ -5,10 +5,10 @@ import { $, esc } from './util';
 import { can } from './state';
 import { editableRoles } from '../shared/perm';
 
-export const ALL_ROUTES = ['board', 'dispatch', 'vehicles', 'vehicle', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'setup', 'users', 'roles', 'activity', 'agencies'];
-export const ROUTE_LABELS: Record<string, string> = { board: 'Status board', dispatch: 'Dispatch', vehicles: 'Vehicles', pm: 'Preventive maintenance', issues: 'Problems', 'work-orders': 'Work orders', parts: 'Parts & mechanics', reports: 'Reports', setup: 'Setup', users: 'Users', roles: 'Roles & permissions', activity: 'Activity history', agencies: 'Agencies' };
+export const ALL_ROUTES = ['board', 'dispatch', 'buscheck', 'vehicles', 'vehicle', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'buschecks', 'setup', 'users', 'roles', 'activity', 'agencies'];
+export const ROUTE_LABELS: Record<string, string> = { board: 'Status board', dispatch: 'Dispatch', buscheck: 'Bus check', buschecks: 'Bus checks', vehicles: 'Vehicles', pm: 'Preventive maintenance', issues: 'Problems', 'work-orders': 'Work orders', parts: 'Parts & mechanics', reports: 'Reports', setup: 'Setup', users: 'Users', roles: 'Roles & permissions', activity: 'Activity history', agencies: 'Agencies' };
 /** Sidebar groups, in order. The vehicle screen is reached from the lists, so it is not in the sidebar. */
-export const NAV_GROUPS: [string, string[]][] = [['Operations', ['board', 'dispatch', 'issues', 'work-orders', 'pm']], ['Fleet', ['vehicles', 'parts']], ['Admin', ['reports', 'setup', 'users', 'roles', 'activity', 'agencies']]];
+export const NAV_GROUPS: [string, string[]][] = [['Operations', ['board', 'dispatch', 'buscheck', 'issues', 'work-orders', 'pm']], ['Fleet', ['vehicles', 'parts']], ['Admin', ['reports', 'buschecks', 'setup', 'users', 'roles', 'activity', 'agencies']]];
 export const groupOf = (r: string) => NAV_GROUPS.find(([, rs]) => rs.includes(r))?.[0] || '';
 
 /** Activity history: the super user and system administrators only (the server answers 403 to everyone else). */
@@ -18,7 +18,7 @@ export function allowedRoutes(): string[] {
   const role = S.me?.role;
   if (!role) return [];
   if (role === 'dispatcher') return ['dispatch'];
-  const r = ALL_ROUTES.filter((x) => x !== 'users' && x !== 'roles' && x !== 'activity' && x !== 'agencies' && (x !== 'reports' || can('viewReports')));
+  const r = ALL_ROUTES.filter((x) => x !== 'users' && x !== 'roles' && x !== 'activity' && x !== 'agencies' && (x !== 'reports' || can('viewReports')) && (x !== 'buscheck' || can('busCheck')) && (x !== 'buschecks' || can('busCheckReports') || can('busCheckEdit')));
   if (can('users')) r.push('users');
   if (S.me && editableRoles({ role: S.me.role, isSuper: !!S.me.isSuperuser }).length) r.push('roles');
   if (canSeeActivity()) r.push('activity');

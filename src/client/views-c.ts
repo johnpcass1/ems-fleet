@@ -118,7 +118,8 @@ VIEWS.setup=function(){
     ${field('Currency',selHtml('st-cur',CURRENCIES.map(c=>[c.code,`${c.label} (${c.symbol})`]),S.currency||'GYD',rd),'Changes the money symbol everywhere for this agency. Amounts already entered are not converted.')}
     ${field(`Approval threshold (${cur().symbol})`,inp('st-thr',S.approvalThresholdGYD,'number',`min="0" step="${moneyStep()}" ${rd}`),'Work orders at or above this need fleet manager approval.')}
     ${field('Due soon window, hours',inp('st-h',S.dueSoonHours,'number',`min="0" ${rd}`))}${field('Due soon window, days',inp('st-d',S.dueSoonDays,'number',`min="0" ${rd}`))}
-    ${field('Comeback window, days',inp('st-cb',S.comebackDays,'number',`min="0" ${rd}`),'A repeat repair of the same system within this many days is a comeback.')}</div>
+    ${field('Comeback window, days',inp('st-cb',S.comebackDays,'number',`min="0" ${rd}`),'A repeat repair of the same system within this many days is a comeback.')}
+    ${field('Bus check shift start times',inp('st-shifts',S.busCheckShifts||'07:00, 19:00','text',`maxlength="100" ${rd}`),'Guyana time, 24-hour, separated by commas, at least 2 hours apart. A bus check counts for the shift it is sent in (or up to 1 hour before it starts).')}</div>
     ${m?'<button class="btn primary" type="submit" id="st-save">Save settings</button>':''}</form></div>
   ${su?`<div class="panel" id="featuresPanel"><div class="ph"><h2>Features</h2><span class="badge">Super user</span></div><form data-form="features" id="featuresForm" class="pb" novalidate>
     <p class="small muted" style="margin-top:0">Site-wide switches. Only the super user sees this panel; fleet managers and system administrators cannot change it.</p>

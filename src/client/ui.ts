@@ -1,5 +1,6 @@
 /** Forms, button actions and global event wiring. */
 import { RANK, checkReading, toCsv } from '../shared/pure';
+import { parseShiftTimes } from '../shared/buscheck';
 import { STATUS, isAvail, isOos } from '../shared/constants';
 import { D, LST, ui, S, can, canWo, settings, uploadsOn, vehiclesSorted, basesSorted, baseName, unitOf, readingsOf, wosOf, vsum, hasSample, coverageAfterRemoval, coverageEffect, saveUi } from './state';
 import { $, $$, esc, num, gyd, cur, moneyStep, todayStr, toast, selHtml, field, inp, nv, val, run } from './util';
@@ -19,6 +20,8 @@ import { userForms, userActs, syncPermsForm } from './users-ui';
 import { roleActs, roleCellChanged, rolePick } from './roles-ui';
 import { activityActs } from './activity-ui';
 import { agencyForms, agencyActs } from './agencies-ui';
+import { busCheckActs } from './buscheck-ui';
+import { busChecksActs } from './buschecks-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
@@ -208,7 +211,9 @@ FORMS.program=async f=>{
 };
 FORMS.settings=async f=>{
   if(!can('setup'))return;
-  const o={currency:val('st-cur')||'GYD',approvalThresholdGYD:nv(val('st-thr'))??150000,dueSoonHours:nv(val('st-h'))??25,dueSoonDays:nv(val('st-d'))??14,comebackDays:nv(val('st-cb'))??30};
+  const o={currency:val('st-cur')||'GYD',approvalThresholdGYD:nv(val('st-thr'))??150000,dueSoonHours:nv(val('st-h'))??25,dueSoonDays:nv(val('st-d'))??14,comebackDays:nv(val('st-cb'))??30,busCheckShifts:val('st-shifts')||'07:00, 19:00'};
+  const sp=parseShiftTimes(o.busCheckShifts);if(!sp.ok){toast((sp as any).error,true);$('#st-shifts').focus();return;}
+  o.busCheckShifts=(sp as any).text;
   if(await run(()=>saveSettings(o)))toast('Settings saved');
 };
 
@@ -381,6 +386,8 @@ Object.assign(FORMS,userForms);
 Object.assign(acts,userActs);
 Object.assign(acts,roleActs);
 Object.assign(acts,activityActs);
+Object.assign(acts,busCheckActs);
+Object.assign(acts,busChecksActs);
 Object.assign(FORMS,agencyForms);
 Object.assign(acts,agencyActs);
 Object.assign(acts,layoutActs);

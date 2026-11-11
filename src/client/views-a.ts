@@ -109,7 +109,7 @@ VIEWS.vehicles=function(){
 };
 
 /* ---- vehicle detail ---- */
-export const VTABS=[['overview','Overview'],['pm','PM'],['issues','Issues'],['wos','Work orders'],['history','History'],['costs','Costs']];
+export const VTABS=[['overview','Overview'],['pm','PM'],['issues','Issues'],['wos','Work orders'],['history','History'],['buschecks','Bus checks'],['costs','Costs']];
 VIEWS.vehicle=function(){
   const v=D.vehicles[ui.vehicleId];
   if(!v)return pageHead('Vehicle',{pt:false})+`<p class="muted">Pick a unit from the <a href="#vehicles">vehicles list</a> or the <a href="#board">board</a>.</p>`;
@@ -126,7 +126,7 @@ VIEWS.vehicle=function(){
     +(can('createWO',v)?actBtn('Create work order',{id:'vNewWo',act:'new-wo',data:{id:v.id},cls:'hide-sm'}):'')
     +menuHtml('vMore','More',items,{labelSm:'Actions',wrapCls:items.every(i=>i.cls==='only-sm')?'smonly':''});
   return `${pageHead(v.unit,{pt:false,acts,extra:statusPill(v.status),sub:`${esc(v.make)} ${esc(v.model)} ${esc(v.year)} · ${esc(baseName(v.baseId))} · <span class="mono-s">${esc(v.plate)}</span> ${loanChip(v)}`}).replace('<h1>','<h1 class="mono">')}
-  <div class="tabs" role="tablist" aria-label="Vehicle sections">${VTABS.map(([k,l])=>`<button role="tab" id="vt-${k}" type="button" data-act="vtab" data-tab="${k}" aria-selected="${ui.vtab===k}">${l}${k==='pm'&&sm.overdue?` (${sm.overdue})`:''}</button>`).join('')}</div>
+  <div class="tabs" role="tablist" aria-label="Vehicle sections">${VTABS.filter(([k])=>k!=='buschecks'||can('busCheckReports',v)).map(([k,l])=>`<button role="tab" id="vt-${k}" type="button" data-act="vtab" data-tab="${k}" aria-selected="${ui.vtab===k}">${l}${k==='pm'&&sm.overdue?` (${sm.overdue})`:''}</button>`).join('')}</div>
   <div role="tabpanel" aria-labelledby="vt-${ui.vtab}">${VT[ui.vtab](v,sm)}</div>`;
 };
 VT.overview=function(v){
@@ -155,7 +155,7 @@ VT.pm=function(v,sm){
     <td>${esc(remText(st))}</td><td>${st.projected?fmtDate(st.projected):'–'}</td><td>${pmPill(st.state)}</td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">No PM program is set for this unit.</td></tr>'}</tbody></table></div></div>`;
 };
 export const issueRows=(list,withUnit)=>list.map(i=>`<tr><td>${withUnit?`<button class="ulink" data-act="open-vehicle" data-id="${esc(i.vehicleId)}">${esc(unitOf(i.vehicleId))}</button><div class="tiny muted">${esc(baseName(D.vehicles[i.vehicleId]?.baseId))}</div>`:fmtDate(i.reportedAt)}</td>
-  <td><button class="btn link" data-act="open-issue" data-id="${esc(i.id)}" id="oi-${esc(i.id)}"><b>${esc(i.title)}</b></button>${attChip(i)}<div class="small muted">${esc(i.description||'')}</div>${thumbStrip(i)}</td><td>${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}</td>
+  <td><button class="btn link" data-act="open-issue" data-id="${esc(i.id)}" id="oi-${esc(i.id)}"><b>${esc(i.title)}</b></button>${attChip(i)}${i.source==='bus_check'||i.source==='bus_check_report'?' <span class="badge acc">Bus check</span>':''}<div class="small muted">${esc(i.description||'')}</div>${thumbStrip(i)}</td><td>${pill(i.severity==='critical'?'bad':i.severity==='major'?'warn':'res',SEV[i.severity])}</td>
   <td>${esc(ISSUE_ST[i.status]||i.status)}${i.woId&&D.workOrders[i.woId]?`<div><button class="btn link mono-s" data-act="open-wo" data-id="${esc(i.woId)}">${esc(D.workOrders[i.woId].number)}</button></div>`:''}</td>
   <td>${fmtDate(i.reportedAt)}<div class="tiny muted">${esc(nameOf(i.by))}</div></td></tr>`).join('');
 VT.issues=function(v){

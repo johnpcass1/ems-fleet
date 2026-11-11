@@ -168,7 +168,7 @@ export function issueHtml(i){
   <h3 class="ititle">${esc(i.title)}</h3><p style="white-space:pre-wrap">${esc(i.description||'No description.')}</p>
   <dl class="dl" style="margin:12px 0 16px">${kv('Unit',v?`<button class="btn link mono-s" data-act="open-vehicle" data-id="${esc(v.id)}">${esc(v.unit)}</button> <span class="muted small">${esc(baseName(v.baseId))}</span>`:'Unknown')}
   ${kv('Reported',fmtDT(i.reportedAt))}${kv('Reported by',esc(nameOf(i.by)))}${kv('Engine hours at report',i.hours!=null?num(i.hours)+' h':'–')}
-  ${kv('Work order',wo?`<button class="btn link mono-s" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
+  ${i.busCheckId&&can('busCheckReports')?kv('Found by',`<button class="btn link" data-act="bc-open" data-id="${esc(i.busCheckId)}" id="issue-bc">A bus check</button>`):i.source?kv('Found by','A bus check'):''}${kv('Work order',wo?`<button class="btn link mono-s" data-act="open-wo" data-id="${esc(wo.id)}">${esc(wo.number)}</button> ${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}`:'None')}</dl>
   <h3>Attachments</h3><div id="attSec">${attHtml('issues',i)}</div>
   ${can('issues')&&i.status==='open'?`<div class="dfoot"><button class="btn primary" data-act="issue-wo" data-id="${esc(i.id)}" id="issue-wo">Create work order</button></div>`:''}`;
 }

@@ -20,6 +20,8 @@ import { resetAgenciesCache } from './agencies-ui';
 import { setProgressHook } from './files';
 import { refreshAtt } from './views-b';
 import { resetActivity } from './activity-ui';
+import { resetBusCheck } from './buscheck-ui';
+import { resetBusChecks } from './buschecks-ui';
 
 let started = false;
 let linkToken = '';
@@ -31,6 +33,8 @@ function clearData() {
   resetUsersCache();
   resetAgenciesCache();
   resetActivity();
+  resetBusCheck();
+  resetBusChecks();
   closeDrawer();
 }
 function toLogin(message = '') {
