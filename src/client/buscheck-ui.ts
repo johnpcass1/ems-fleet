@@ -15,6 +15,7 @@ import { icon } from './icons';
 import { api, syncNow } from './api';
 import { confirmUI } from './dom';
 import { go, allowedRoutes } from './nav';
+import { dmyHM } from '../shared/activity';
 
 interface Person { sel: string; name: string }
 interface Problem { title: string; description: string; severity: string }
@@ -28,6 +29,7 @@ const st = {
   answers: {} as Record<string, BusAnswer>, problems: [] as Problem[], attested: false,
   closed: new Set<string>(), // sections the person collapsed
   ref: '', sending: false, done: null as any, err: '', restored: false, picked: false,
+  known: { vid: '', rows: null as any[] | null, err: '', token: 0 }, // the unit's open equipment shortages, for the "Known shortages" panel
   showMissing: false, // after a Send with unanswered items: mark every one of them in red
 };
 const newRef = () => { try { return crypto.randomUUID(); } catch { return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); } };
@@ -36,6 +38,7 @@ const newRef = () => { try { return crypto.randomUUID(); } catch { return 'r' + 
 export function resetBusCheck() {
   st.owner = ''; st.vehicleId = ''; st.baseId = ''; st.emt1 = blankPerson(); st.emt2 = blankPerson(); st.driver = blankPerson(); st.km = ''; st.hours = '';
   st.answers = {}; st.problems = []; st.attested = false; st.closed = new Set(); st.ref = ''; st.sending = false; st.done = null; st.err = ''; st.restored = false; st.picked = false; st.showMissing = false;
+  st.known = { vid: '', rows: null, err: '', token: st.known.token + 1 };
 }
 
 /* ---------- the unsent draft (this browser only) ---------- */
@@ -132,7 +135,7 @@ function itemHtml(it: BusItem) {
   const sh = ok ? shortageOf(it, a, todayStr()) : null;
   const err = a && !ok && (a.status != null || a.value != null || a.date != null) ? answerError(it, a) : null;
   const missing = st.showMissing && isRequired(it) && !ok && !err;
-  const shNote = sh && (it.kind === 'number' || it.kind === 'date') ? (it.kind === 'number' ? `Below the minimum of ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}. This will be reported to maintenance.` : 'Expired. This will be reported to maintenance.') : '';
+  const shNote = sh && (it.kind === 'number' || it.kind === 'date') ? (it.kind === 'number' ? `Below the minimum of ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}. This will be recorded as an equipment shortage.` : 'Expired. This will be recorded as an equipment shortage.') : '';
   return `<li class="bci${sh ? ' bad' : ''}${ok ? ' done' : ''}${missing ? ' missing' : ''}" id="bci-${esc(it.id)}">
     <div class="bcname">${it.code ? `<span class="bccode">${esc(it.code)}</span>` : ''}<span class="bctxt">${esc(it.name)}</span>${isRequired(it) ? '' : ' <span class="tiny muted">optional</span>'}
       ${it.kind === 'count' ? `<span class="tiny muted bcmin">Need ${num(it.min)}${it.unit ? ' ' + esc(it.unit) : ''}</span>` : ''}${it.note ? `<span class="tiny muted bcnote">${esc(it.note)}</span>` : ''}</div>
@@ -157,18 +160,37 @@ function summary() {
   const p = progress(sc, st.answers);
   return { ...p, shortages: checkAnswers(sc, st.answers, todayStr()).shortages.length };
 }
+/* ---------- what is already reported short on this unit ---------- */
+function knownInner(): string {
+  const k = st.known, h = '<div class="ph"><h2>Known shortages on this unit</h2></div>';
+  if (k.err && !k.rows) return `${h}<div class="pb"><div class="warnbox bad" role="alert">${esc(k.err)} <button type="button" class="btn sm" data-act="bc-known-retry" id="bcKnownRetry">Try again</button></div></div>`;
+  if (!k.rows) return `${h}<div class="pb muted small" role="status">Loading...</div>`;
+  if (!k.rows.length) return `${h}<div class="pb muted small" id="bcKnownNone">Nothing is reported short on this unit.</div>`;
+  return `${h}<div class="pb"><ul class="bcknownl" id="bcKnownList">${k.rows.map((r: any) => `<li>${r.code ? `<span class="bccode">${esc(r.code)}</span> ` : ''}<b>${esc(r.name)}</b><div class="tiny muted">${esc(r.found)} First found ${esc(dmyHM(r.firstAt))}${r.checks > 1 ? `, found in ${r.checks} checks` : ''}.</div></li>`).join('')}</ul>
+    <p class="tiny muted" style="margin:8px 0 0">Already reported, so you do not need to report these again. If you find one short again, answer the item as usual: it is added to the same shortage.</p></div>`;
+}
+/** Load the unit's open shortages once per unit; the panel is filled in place (no page redraw, so nothing being typed is disturbed). */
+function loadKnown(vid: string, force = false) {
+  const k = st.known;
+  if (!force && k.vid === vid) return;
+  const token = ++k.token;
+  k.vid = vid; k.rows = null; k.err = '';
+  api('GET', '/bus-checks/equipment/known?vehicleId=' + encodeURIComponent(vid)).then((r: any) => { if (token === st.known.token) st.known.rows = r.shortages; })
+    .catch((e: any) => { if (token === st.known.token) st.known.err = e?.user ? e.message : 'Could not load the known shortages.'; })
+    .finally(() => { if (token !== st.known.token) return; const el = document.getElementById('bcKnown'); if (el) el.innerHTML = knownInner(); });
+}
 function doneHtml() {
   const r = st.done, v = D.vehicles[r.vehicleId];
   const bits = [
     r.shortages ? `${r.shortages} ${r.shortages === 1 ? 'shortage' : 'shortages'} found` : 'No shortages found',
-    r.newProblems ? `${r.newProblems} new ${r.newProblems === 1 ? 'problem' : 'problems'} sent to maintenance` : '',
-    r.joined ? `${r.joined} added to ${r.joined === 1 ? 'a problem that was' : 'problems that were'} already open` : '',
-    r.reported ? `${r.reported} ${r.reported === 1 ? 'problem' : 'problems'} you reported` : '',
+    r.newShortages ? `${r.newShortages} new ${r.newShortages === 1 ? 'shortage' : 'shortages'} recorded for restocking` : '',
+    r.joined ? `${r.joined} added to ${r.joined === 1 ? 'a shortage that was' : 'shortages that were'} already open` : '',
+    r.reported ? `${r.reported} ${r.reported === 1 ? 'vehicle problem' : 'vehicle problems'} you reported sent to maintenance` : '',
   ].filter(Boolean);
   return `${pageHead('Bus check')}<div class="panel" id="bcDone"><div class="pb bcdone">${icon('check', 'big')}<h2>Bus check sent${v ? ' for ' + esc(v.unit) : ''}</h2>
     <p>${esc(bits.join('. '))}.</p>
     ${r.flagged ? `<div class="warnbox bad" role="status">The meter reading looked wrong, so it was saved as flagged for a supervisor. The unit's hours were not changed. ${esc((r.warnings || []).join(' '))}</div>` : ''}
-    <div class="row"><button type="button" class="btn primary" data-act="bc-again" id="bcAgain">Check another unit</button>${allowedRoutes().includes('issues') ? '<button type="button" class="btn" data-act="bc-to-issues" id="bcToIssues">See the problems</button>' : ''}</div></div></div>`;
+    <div class="row"><button type="button" class="btn primary" data-act="bc-again" id="bcAgain">Check another unit</button>${r.reported && allowedRoutes().includes('issues') ? '<button type="button" class="btn" data-act="bc-to-issues" id="bcToIssues">See the problems</button>' : ''}</div></div></div>`;
 }
 
 VIEWS.buscheck = function () {
@@ -188,18 +210,20 @@ VIEWS.buscheck = function () {
     ${v ? (l ? `<p class="small muted" id="bcList">List: <b>${esc(l.name)}</b>, ${flatItems(sc).length} items.</p>` : `<div class="warnbox bad" role="alert" id="bcNoList">No bus check list covers this unit${v.type ? ' (type: ' + esc(v.type) + ')' : ''}. A fleet manager needs to set one up first (Admin, Bus checks, Requirements).</div>`) : ''}
     ${st.restored ? `<div class="warnbox info" role="status" id="bcRestored">Your unsent check for this unit was put back. <button type="button" class="btn sm" data-act="bc-discard" id="bcDiscard">Start again</button></div>` : ''}</div></div>`;
   if (!v || !l) return `${head}${unitPanel}${v ? '' : '<p class="muted small">Choose the unit you are checking to begin.</p>'}`;
+  loadKnown(v.id);
+  const knownPanel = `<div class="panel" id="bcKnown">${knownInner()}</div>`;
   const p = summary();
   const crewPanel = `<div class="panel"><div class="ph"><h2>Crew</h2></div><div class="pb"><div class="fgrid">${personField('emt1', 'EMT 1', true)}${personField('emt2', 'EMT 2', true)}${personField('driver', 'Driver', false)}</div></div></div>`;
   const readPanel = `<div class="panel"><div class="ph"><h2>Meter readings</h2><span class="muted small">${esc(hint(v))}</span></div><div class="pb"><div class="fgrid">
     ${field('Mileage (km)', inp('bc-km', st.km, 'number', 'min="0" step="1" required inputmode="numeric" data-bc="km"'))}${field('Engine hours', inp('bc-hours', st.hours, 'number', 'min="0" step="1" required inputmode="numeric" data-bc="hours"'))}</div></div></div>`;
   const bar = `<div class="bcbar" id="bcBar" role="status" aria-live="polite"><b id="bcProg">${p.done} of ${p.total} answered</b><span id="bcShort" class="${p.shortages ? 'bad' : 'muted'}">${p.shortages} ${p.shortages === 1 ? 'shortage' : 'shortages'}</span></div>`;
   const probs = `<div class="panel"><div class="ph"><h2>Problems to report</h2><button type="button" class="btn sm" data-act="bc-add-problem" id="bcAddProblem">${icon('plus')}Report a problem</button></div>
-    <div class="pb">${st.problems.length ? st.problems.map(problemHtml).join('') : '<p class="muted small" style="margin:0">Anything else wrong with the unit that is not on the list. Shortages below are sent to maintenance automatically, so you do not need to report those here.</p>'}</div></div>`;
+    <div class="pb">${st.problems.length ? st.problems.map(problemHtml).join('') : '<p class="muted small" style="margin:0">Anything wrong with the vehicle itself that is not on the list. Equipment shortages are recorded for restocking automatically, so you do not need to report those here.</p>'}</div></div>`;
   const send = `<div class="panel"><div class="pb">
     <label class="chk bcattest"><input type="checkbox" id="bc-attest" name="bc-attest" data-bc="attest"${st.attested ? ' checked' : ''}><span>${esc(ATTESTATION)}</span></label>
     ${st.err ? `<div class="warnbox bad" role="alert" id="bcErr">${esc(st.err)}</div>` : ''}
     <div class="row"><button type="button" class="btn primary" data-act="bc-submit" id="bcSubmit"${st.sending ? ' disabled' : ''}>${st.sending ? 'Sending...' : 'Submit bus check'}</button></div></div></div>`;
-  return `${head}${unitPanel}${crewPanel}${readPanel}${bar}${sc.map(sectionHtml).join('')}${probs}${send}`;
+  return `${head}${unitPanel}${knownPanel}${crewPanel}${readPanel}${bar}${sc.map(sectionHtml).join('')}${probs}${send}`;
 };
 
 /* ---------- actions ---------- */
@@ -258,6 +282,7 @@ export const busCheckActs: Record<string, any> = {
   },
   'bc-again': () => { resetBusCheck(); ensureOwner(); st.picked = true; scheduleRender(); },
   'bc-to-issues': () => go('issues'),
+  'bc-known-retry': () => { if (st.vehicleId) { loadKnown(st.vehicleId, true); const el = document.getElementById('bcKnown'); if (el) el.innerHTML = knownInner(); } },
   'bc-submit': () => submit(),
 };
 
@@ -296,9 +321,13 @@ async function submit() {
   // a reading that looks wrong: the same test as Log engine hours
   const rs = readingsOf(v.id).filter((r: any) => !r.flagged), warn = checkReading(v.engineHours || 0, rs[rs.length - 1], hours, Date.now(), v.odometerKm, km);
   // Shortages never stop a check being sent; the crew sees every issue by name before sending.
-  const issues = [...rep.shortages.map((s) => s.title.replace(/^Bus check: /, '')), ...st.problems.map((p) => `Problem reported: ${p.title.trim()}`)];
+  const nS = rep.shortages.length, nP = st.problems.length;
+  const issues = [...rep.shortages.map((s) => `Equipment shortage: ${s.title.replace(/^Bus check: /, '')}`), ...st.problems.map((p) => `Vehicle problem: ${p.title.trim()}`)];
   const n = issues.length;
-  const message = n ? `This check has ${n} ${n === 1 ? 'issue' : 'issues'}. ${n === 1 ? 'It' : 'Each one'} will be sent to maintenance as a problem (an open problem for the same item is added to instead):` : 'Everything was checked and nothing is short.';
+  const message = n ? [
+    nS ? `${nS === 1 ? 'The equipment shortage is' : `The ${nS} equipment shortages are`} recorded for restocking (a shortage already open for the same item is added to).` : '',
+    nP ? `${nP === 1 ? 'The problem you reported is' : `The ${nP} problems you reported are`} sent to maintenance as ${nP === 1 ? 'a vehicle problem' : 'vehicle problems'}.` : '',
+  ].filter(Boolean).join(' ') : 'Everything was checked and nothing is short.';
   scheduleRender(); // clear an earlier error box before the dialog opens
   const after = `A sent check cannot be changed.${warn.length ? ' Check the reading: ' + warn.join(' ') + ' It will be saved flagged for a supervisor and the unit\'s hours will not change.' : ''}`;
   if (!(await confirmUI({ title: n ? `${v.unit}: ${n} ${n === 1 ? 'issue' : 'issues'} found` : `Send the bus check for ${v.unit}?`, message, list: issues, after, label: n ? `Send with ${n} ${n === 1 ? 'issue' : 'issues'}` : 'Send bus check' }))) return;

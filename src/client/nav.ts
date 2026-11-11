@@ -18,7 +18,7 @@ export function allowedRoutes(): string[] {
   const role = S.me?.role;
   if (!role) return [];
   if (role === 'dispatcher') return ['dispatch'];
-  const r = ALL_ROUTES.filter((x) => x !== 'users' && x !== 'roles' && x !== 'activity' && x !== 'agencies' && (x !== 'reports' || can('viewReports')) && (x !== 'buscheck' || can('busCheck')) && (x !== 'buschecks' || can('busCheckReports') || can('busCheckEdit')));
+  const r = ALL_ROUTES.filter((x) => x !== 'users' && x !== 'roles' && x !== 'activity' && x !== 'agencies' && (x !== 'reports' || can('viewReports')) && (x !== 'buscheck' || can('busCheck')) && (x !== 'buschecks' || can('busCheckReports') || can('busCheckRestock') || can('busCheckEdit')));
   if (can('users')) r.push('users');
   if (S.me && editableRoles({ role: S.me.role, isSuper: !!S.me.isSuperuser }).length) r.push('roles');
   if (canSeeActivity()) r.push('activity');

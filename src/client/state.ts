@@ -1,6 +1,7 @@
 /** Client-side data cache, session info and the lookups the views share. */
 import { RANK, addDays, avgHoursPerDay, daysBetween, pmTaskStatus, projectDue, woTotal } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
+import { SHORTAGE_SOURCE } from '../shared/buscheck';
 import { canOnVehicle, canWorkWO, can as canActor, type Actor } from '../shared/perm';
 import { esc, todayStr, setCurrencySource } from './util';
 
@@ -90,7 +91,8 @@ export function applySync(res: any) {
   if (res.full) COLS.forEach((c) => { D[c] = {}; });
   for (const c of Object.keys(res.data || {})) {
     if (!D[c]) continue;
-    for (const d of res.data[c]) D[c][d.id] = d;
+    // Equipment shortages are not vehicle problems. The server never sends them in `issues`; this keeps them out even if one ever slipped through.
+    for (const d of res.data[c]) if (!(c === 'issues' && d.source === SHORTAGE_SOURCE)) D[c][d.id] = d;
   }
   for (const c of Object.keys(res.deleted || {})) for (const id of res.deleted[c]) if (D[c]) delete D[c][id];
   COLS.forEach((c) => { LST[c] = Object.values(D[c]); });

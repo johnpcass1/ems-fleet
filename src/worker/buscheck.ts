@@ -20,7 +20,7 @@ import { addReading, getSettings, readingFields, vehicleRow, writeStatus } from 
 import { baseScope, can, canOnVehicle, vehicleInScope, type Actor } from '../shared/perm';
 import { isAvail } from '../shared/constants';
 import {
-  ATTESTATION, ITEM_KINDS, MAX_ITEMS, MAX_SECTIONS, NOTE_MAX, REPORT_SOURCE, RESTOCKED, RESTOCK_NOTE_MAX, RESTOCK_RECENT_DAYS, SHORTAGE_SOURCE, latestFound, cellState, checkAnswers, cleanAnswer, flatItems, isRealDate, listClash, pickList, shiftFor, shiftMinutes, shiftsOnDate, hhmm,
+  ATTESTATION, ITEM_KINDS, MAX_ITEMS, MAX_SECTIONS, NOTE_MAX, REPORT_SOURCE, RESTOCKED, RESTOCK_NOTE_MAX, RESTOCK_RECENT_DAYS, SHORTAGE_SOURCE, latestFound, restockNote, cellState, checkAnswers, cleanAnswer, flatItems, isRealDate, listClash, pickList, shiftFor, shiftMinutes, shiftsOnDate, hhmm,
   type BusAnswers, type BusItem, type BusSection, type Shortage,
 } from '../shared/buscheck';
 import { STARTER_LIST_NAME, STARTER_SECTIONS } from '../shared/busCheckStarter';
@@ -553,7 +553,7 @@ const SHORTAGE_MAX = 1000;
 export interface ShortageRow {
   id: string; vehicleId: string; unit: string; baseId: string | null; base: string; itemId: string; code: string; name: string; section: string;
   title: string; found: string; firstAt: string; checks: number; lastAt: string; lastCheckId: string | null; status: string;
-  restockedAt: string | null; restockedBy: string | null; restockedByName: string;
+  restockedAt: string | null; restockedBy: string | null; restockedByName: string; restockNote: string;
 }
 /** Shortages of one agency (the caller adds the status and any unit or base conditions), with how many checks found each and the last of them. */
 async function shortageRows(env: Env, agency: string, where: string, params: unknown[], order: 'unit' | 'restocked'): Promise<ShortageRow[]> {
@@ -569,7 +569,7 @@ async function shortageRows(env: Env, agency: string, where: string, params: unk
     return {
       id: r.id, vehicleId: r.vehicle_id, unit: r.unit, baseId: r.base_id, base: r.base_name ?? '', itemId: r.source_ref ?? '', code: it.code ?? '', name: it.name ?? String(r.title).replace(/^Bus check: /, ''), section: it.section ?? '',
       title: r.title, found: latestFound(r.description), firstAt: r.reported_at, checks: st?.n ?? 1, lastAt: k > 0 ? last.slice(0, k) : r.reported_at, lastCheckId: k > 0 ? last.slice(k + 1) : null, status: r.status,
-      restockedAt: r.restocked_at ?? null, restockedBy: r.restocked_by ?? null, restockedByName: r.restocked_by_name ?? '',
+      restockedAt: r.restocked_at ?? null, restockedBy: r.restocked_by ?? null, restockedByName: r.restocked_by_name ?? '', restockNote: r.status === RESTOCKED ? restockNote(r.description) : '',
     };
   });
 }

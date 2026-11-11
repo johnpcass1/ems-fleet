@@ -85,6 +85,11 @@ export const RESTOCKED = 'restocked';
 export const RESTOCK_NOTE_MAX = 200;
 /** How many days "Restocked recently" reaches back. */
 export const RESTOCK_RECENT_DAYS = 30;
+/** The note typed when a shortage was marked restocked (empty when none), read from its description. */
+export function restockNote(description: string): string {
+  const m = /\n\nRestocked by [^\n]*? on \d\d\/\d\d\/\d{4} \d\d:\d\d\.(?: Note: ([\s\S]*))?$/.exec(String(description || ''));
+  return (m?.[1] ?? '').trim();
+}
 /** What was found the last time, read from a shortage's description (the first finding, then one "Found again" paragraph per later check). */
 export function latestFound(description: string): string {
   const d = String(description || '').split('\n\nRestocked')[0];
