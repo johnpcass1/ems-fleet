@@ -20,7 +20,7 @@ const say = (r: any, lk: Lookup = L) => describePlain(r, lk);
 
 describe('describer sentences', () => {
   it('bus checks', () => {
-    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 2, problems: 3 }))).toBe('Submitted a bus check on GEMA-03 with 2 shortages and 3 problems sent to maintenance');
+    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 2, problems: 3 }))).toBe('Submitted a bus check on GEMA-03 with 2 shortages and 3 vehicle problems sent to maintenance');
     expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 0, problems: 0 }))).toBe('Submitted a bus check on GEMA-03 with no shortages');
     expect(say(row('buschecklist.create', 'bus_check_list', 'l1', null, { starter: true, items: 79 }))).toBe('Started the bus check requirements from the standard list (79 items)');
     expect(say(row('buschecklist.deactivate', 'bus_check_list', 'l1', { name: 'Box' }, { name: 'Box' }))).toBe("Made the bus check list 'Box' inactive");

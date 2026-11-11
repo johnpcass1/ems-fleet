@@ -246,10 +246,17 @@ const DESCRIBE: Record<string, Describer> = {
 
   /* problems */
   'issue.report': (r, L) => {
+    if (r.after?.shortage) return S('Recorded an equipment shortage on ', unitSeg(L, r.after?.vehicleId), ' in a bus check', r.after?.title ? `: ${String(r.after.title).replace(/^Bus check: /, '')}` : '');
     const sev = String(r.after?.severity || 'major').toLowerCase();
     return S(`Reported ${aOrAn(sev)} ${sev} problem on `, unitSeg(L, r.after?.vehicleId), r.after?.busCheckId ? ' in a bus check' : '', r.after?.title ? `: ${r.after.title}` : '');
   },
-  'issue.buscheck_link': (r, L) => S('Added a new bus check finding to the problem ', `'${r.after?.title ?? 'a problem'}'`, ' on ', unitSeg(L, r.after?.vehicleId)),
+  'issue.buscheck_link': (r, L) => S('Added a new bus check finding to the equipment shortage ', `'${String(r.after?.title ?? 'a shortage').replace(/^Bus check: /, '')}'`, ' on ', unitSeg(L, r.after?.vehicleId)),
+  'issue.restock': (r, L) => {
+    const i = r.entityId ? L.issue(r.entityId) : null;
+    const title = String(r.after?.title ?? i?.title ?? '').replace(/^Bus check: /, '');
+    const vid = r.after?.vehicleId ?? i?.vehicleId ?? null;
+    return S(title ? `Marked '${title}' restocked` : 'Marked an equipment shortage restocked', ...(vid ? [' on ', unitSeg(L, vid)] : []), r.after?.note ? ` (${r.after.note})` : '');
+  },
   'issue.dismiss': (r, L) => {
     const i = r.entityId ? L.issue(r.entityId) : null;
     return i ? S(`Dismissed the problem '${i.title}'`, ...(i.vehicleId ? [' on ', unitSeg(L, i.vehicleId)] : [])) : S('Dismissed a problem');
@@ -275,7 +282,7 @@ const DESCRIBE: Record<string, Describer> = {
   /* bus checks */
   'buscheck.submit': (r, L) => {
     const n = Number(r.after?.shortages ?? 0), p = Number(r.after?.problems ?? 0);
-    return S('Submitted a bus check on ', unitSeg(L, r.after?.vehicleId, r.after?.unit), n ? ` with ${n} ${n === 1 ? 'shortage' : 'shortages'}` : ' with no shortages', p ? ` and ${p} ${p === 1 ? 'problem' : 'problems'} sent to maintenance` : '');
+    return S('Submitted a bus check on ', unitSeg(L, r.after?.vehicleId, r.after?.unit), n ? ` with ${n} ${n === 1 ? 'shortage' : 'shortages'}` : ' with no shortages', p ? ` and ${p} vehicle ${p === 1 ? 'problem' : 'problems'} sent to maintenance` : '');
   },
   'buschecklist.create': (r) => S(r.after?.starter ? 'Started the bus check requirements from the standard list' : `Created the bus check list '${r.after?.name ?? ''}'`, r.after?.items != null ? ` (${r.after.items} items)` : ''),
   'buschecklist.duplicate': (r) => S(`Copied the bus check list '${r.before?.name ?? ''}' as '${r.after?.name ?? ''}'`),

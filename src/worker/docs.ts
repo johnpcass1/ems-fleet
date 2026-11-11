@@ -14,7 +14,8 @@ export interface CollSpec {
   /** SELECT ... FROM <table> alias (no WHERE). */
   select: string;
   map: (r: any) => any;
-  /** Synced collections have a `seq` column. */
+  /** Extra condition (on X) that every browser sync adds: rows that fail it are never sent. Synced collections have a `seq` column. */
+  syncWhere?: string;
 }
 
 const ATT_SUB = (type: string) => `(SELECT json_group_array(json_object('assetId', a.id, 'name', a.name, 'type', a.content_type, 'size', a.size, 'at', a.created_at, 'by', a.created_by))
@@ -62,6 +63,8 @@ export const SPECS: Record<string, CollSpec> = {
   issues: {
     coll: 'issues', table: 'issues',
     select: `SELECT X.*, ${ATT_SUB('issue')} AS atts FROM issues X`,
+    // Equipment shortages found by bus checks are not vehicle problems: they are never sent to the browser as problems (the Equipment tab reads them from /api/bus-checks/equipment).
+    syncWhere: "COALESCE(X.source, '') <> 'bus_check'",
     map: (r) => {
       const d: any = { id: r.id, vehicleId: r.vehicle_id, title: r.title, description: r.description, severity: r.severity, status: r.status, reportedAt: r.reported_at, by: r.by_user, woId: r.wo_id, hours: r.hours, ...sampleCol(r) };
       if (r.source) { d.source = r.source; d.busCheckId = r.bus_check_id; d.sourceRef = r.source_ref; }

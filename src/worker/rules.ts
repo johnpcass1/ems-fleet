@@ -146,7 +146,7 @@ export async function reportIssue(env: Env, actor: Actor, body: unknown) {
 
 export async function dismissIssue(env: Env, actor: Actor, issueId: string) {
   const is = await agencyRow<any>(env.DB, 'issues', actor.agencyId, issueId);
-  if (!is) throw notFound();
+  if (!is || is.source === 'bus_check') throw notFound(); // an equipment shortage is not a vehicle problem: it is restocked, never dismissed
   const v = await vehicleRow(env.DB, actor.agencyId, is.vehicle_id);
   if (!canOnVehicle(actor, 'issues', v.base_id)) throw forbidden();
   if (is.status !== 'open') throw conflict('Only open problems can be dismissed.');
@@ -181,7 +181,8 @@ export async function createWorkOrder(env: Env, actor: Actor, body: unknown) {
   const tasks: any[] = prog?.tasks || [];
   for (const t of i.pmTaskIds) if (!tasks.find((x) => x.id === t)) throw bad('One of the PM tasks does not belong to this unit.');
   for (const iid of i.issueIds) {
-    const is = await first<any>(env.DB, 'SELECT vehicle_id, status FROM issues WHERE id = ? AND agency_id = ?', iid, actor.agencyId);
+    const is = await first<any>(env.DB, 'SELECT vehicle_id, status, source FROM issues WHERE id = ? AND agency_id = ?', iid, actor.agencyId);
+    if (is?.source === 'bus_check') throw notFound('One of the problems does not exist.'); // an equipment shortage is not a vehicle problem
     if (!is || is.vehicle_id !== v.id) throw bad('One of the problems is not on this unit.');
     if (is.status !== 'open') throw conflict('One of the problems already has a work order.');
   }
@@ -373,7 +374,7 @@ export async function transitionWorkOrder(env: Env, actor: Actor, woId: string, 
       for (const l of wo.lines || []) if (l.partId) use[l.partId] = (use[l.partId] || 0) + (Number(l.qty) || 0);
       for (const [pid, q] of Object.entries(use)) tx.run(`UPDATE parts SET on_hand = MAX(0, on_hand - ?), seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=?`, q, tx.at, pid, tx.agency);
       // 4. linked problems are resolved
-      for (const iid of wo.issueIds || []) tx.run(`UPDATE issues SET status='resolved', seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=?`, tx.at, iid, tx.agency);
+      for (const iid of wo.issueIds || []) tx.run(`UPDATE issues SET status='resolved', seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=? AND COALESCE(source,'') <> 'bus_check'`, tx.at, iid, tx.agency);
       // 5. back in service, unless another job on this unit is still going
       const others = await first(env.DB, "SELECT 1 FROM work_orders WHERE agency_id = ? AND vehicle_id = ? AND id <> ? AND status IN ('in_progress','on_hold')", actor.agencyId, v.id, wo.id);
       if (isOos(v.status) && !others) writeStatus(tx, v, 'in_service', `${wo.number} completed`, null, wo.id);
@@ -390,7 +391,7 @@ export async function transitionWorkOrder(env: Env, actor: Actor, woId: string, 
     case 'cancel':
       if (!canOnVehicle(actor, 'cancelWO', base)) throw forbidden();
       need(['open', 'approved', 'scheduled', 'in_progress', 'on_hold', 'completed']);
-      for (const iid of wo.issueIds || []) tx.run(`UPDATE issues SET status='open', wo_id=NULL, seq=${SEQ}, updated_at=? WHERE id=? AND status='in_work_order' AND agency_id=?`, tx.at, iid, tx.agency);
+      for (const iid of wo.issueIds || []) tx.run(`UPDATE issues SET status='open', wo_id=NULL, seq=${SEQ}, updated_at=? WHERE id=? AND status='in_work_order' AND agency_id=? AND COALESCE(source,'') <> 'bus_check'`, tx.at, iid, tx.agency);
       setWo("status='cancelled', hold_reason=NULL");
       after = { status: 'cancelled' };
       break;

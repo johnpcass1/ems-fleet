@@ -6,6 +6,8 @@
  *    for each shortage. busCheck, on units the person may act on.
  *  - Reports: today's status by shift, shortages, history (paged), one full check, CSV. busCheckReports, supervisors only for their bases.
  *
+ *  - Equipment shortages (the open ones, restock, CSV) and the crew's "Known shortages" panel. A shortage is stored in `issues` (source 'bus_check') but is not a vehicle problem.
+ *
  * Every query here starts with agency_id = the caller's agency (from the session, see requireAuth). Every id that arrives from the browser
  * (unit, base, list, person, check) is looked up inside that agency first; another agency's id behaves exactly like one that does not exist.
  */
@@ -18,7 +20,7 @@ import { addReading, getSettings, readingFields, vehicleRow, writeStatus } from 
 import { baseScope, can, canOnVehicle, vehicleInScope, type Actor } from '../shared/perm';
 import { isAvail } from '../shared/constants';
 import {
-  ATTESTATION, ITEM_KINDS, MAX_ITEMS, MAX_SECTIONS, NOTE_MAX, cellState, checkAnswers, cleanAnswer, flatItems, isRealDate, listClash, pickList, shiftFor, shiftMinutes, shiftsOnDate, hhmm,
+  ATTESTATION, ITEM_KINDS, MAX_ITEMS, MAX_SECTIONS, NOTE_MAX, REPORT_SOURCE, RESTOCKED, RESTOCK_NOTE_MAX, RESTOCK_RECENT_DAYS, SHORTAGE_SOURCE, latestFound, cellState, checkAnswers, cleanAnswer, flatItems, isRealDate, listClash, pickList, shiftFor, shiftMinutes, shiftsOnDate, hhmm,
   type BusAnswers, type BusItem, type BusSection, type Shortage,
 } from '../shared/buscheck';
 import { STARTER_LIST_NAME, STARTER_SECTIONS } from '../shared/busCheckStarter';
@@ -197,7 +199,7 @@ async function person(env: Env, agency: string, p: { userId?: string | null; nam
 }
 
 /** The shape of what a submit answers with. */
-export interface SubmitResult { ok: true; id: string; at: string; shortages: number; newProblems: number; joined: number; reported: number; flagged: boolean; warnings: string[]; shift: string; duplicate?: boolean }
+export interface SubmitResult { ok: true; id: string; at: string; shortages: number; newShortages: number; joined: number; reported: number; flagged: boolean; warnings: string[]; shift: string; duplicate?: boolean }
 
 /** POST /api/bus-checks. One database batch: the check, the meter reading, reported problems and one problem per shortage (or a note on the open one). */
 export async function submitCheck(env: Env, actor: Actor, body: unknown): Promise<SubmitResult> {
@@ -213,7 +215,7 @@ export async function submitCheck(env: Env, actor: Actor, body: unknown): Promis
       if (dup) {
         if (dup.vehicle_id !== v.id) throw conflict('That check reference was already used.', 'duplicate_ref');
         const ps = j(dup.problems, []) as any[];
-        return { ok: true, id: dup.id, at: dup.submitted_at, shortages: dup.shortages, newProblems: ps.filter((p) => p.kind === 'new').length, joined: ps.filter((p) => p.kind === 'existing').length, reported: ps.filter((p) => p.kind === 'reported').length, flagged: !!dup.reading_flagged, warnings: [], shift: '', duplicate: true };
+        return { ok: true, id: dup.id, at: dup.submitted_at, shortages: dup.shortages, newShortages: ps.filter((p) => p.kind === 'new').length, joined: ps.filter((p) => p.kind === 'existing').length, reported: ps.filter((p) => p.kind === 'reported').length, flagged: !!dup.reading_flagged, warnings: [], shift: '', duplicate: true };
       }
     }
     if (!(await inAgency(env.DB, 'bases', ag, i.baseId))) throw bad('That base does not exist.');
@@ -241,7 +243,7 @@ export async function submitCheck(env: Env, actor: Actor, body: unknown): Promis
     // Open problems this unit already has from earlier checks, for the same items: this check joins them instead of adding another.
     const refs = report.shortages.map((s) => s.itemId);
     const open = refs.length
-      ? await all<any>(env.DB, `SELECT id, source_ref, description FROM issues WHERE agency_id = ? AND vehicle_id = ? AND source = 'bus_check' AND status IN ('open', 'in_work_order') AND source_ref IN (SELECT value FROM json_each(?))`, ag, v.id, JSON.stringify(refs))
+      ? await all<any>(env.DB, `SELECT id, source_ref, description FROM issues WHERE agency_id = ? AND vehicle_id = ? AND source = '${SHORTAGE_SOURCE}' AND status IN ('open', 'in_work_order') AND source_ref IN (SELECT value FROM json_each(?))`, ag, v.id, JSON.stringify(refs))
       : [];
     const openBy = new Map<string, any>(open.map((r) => [r.source_ref, r]));
 
@@ -262,19 +264,19 @@ export async function submitCheck(env: Env, actor: Actor, body: unknown): Promis
         joins.push({ id: ex.id, add });
         problems.push({ issueId: ex.id, kind: 'existing', itemId: s.itemId });
         shortageItems.push({ ...s, problemId: ex.id, joined: true });
-        audits.push({ action: 'issue.buscheck_link', entityType: 'issue', entityId: ex.id, after: { vehicleId: v.id, title: s.title, busCheckId: checkId } });
+        audits.push({ action: 'issue.buscheck_link', entityType: 'issue', entityId: ex.id, after: { vehicleId: v.id, title: s.title, busCheckId: checkId, shortage: true } });
       } else {
         const id = uid('is');
         const description = `Found by a bus check on ${when}.\n${ref}\n${s.found}${s.note ? '\nNote: ' + s.note : ''}`.slice(0, 4000);
-        newIssues.push({ id, title: s.title, description, severity: s.severity, source: 'bus_check', ref: s.itemId });
+        newIssues.push({ id, title: s.title, description, severity: s.severity, source: SHORTAGE_SOURCE, ref: s.itemId });
         problems.push({ issueId: id, kind: 'new', itemId: s.itemId });
         shortageItems.push({ ...s, problemId: id, joined: false });
-        audits.push({ action: 'issue.report', entityType: 'issue', entityId: id, after: { vehicleId: v.id, title: s.title, severity: s.severity, busCheckId: checkId } });
+        audits.push({ action: 'issue.report', entityType: 'issue', entityId: id, after: { vehicleId: v.id, title: s.title, severity: s.severity, busCheckId: checkId, shortage: true } });
       }
     }
     for (const p of i.problems) {
       const id = uid('is');
-      newIssues.push({ id, title: p.title, description: p.description, severity: p.severity, source: 'bus_check_report', ref: null });
+      newIssues.push({ id, title: p.title, description: p.description, severity: p.severity, source: REPORT_SOURCE, ref: null });
       problems.push({ issueId: id, kind: 'reported', itemId: null });
       audits.push({ action: 'issue.report', entityType: 'issue', entityId: id, after: { vehicleId: v.id, title: p.title, severity: p.severity, busCheckId: checkId } });
     }
@@ -307,7 +309,7 @@ export async function submitCheck(env: Env, actor: Actor, body: unknown): Promis
       JSON.stringify({ name: listRow.name, sections }), JSON.stringify(answers), JSON.stringify(shortageItems), JSON.stringify(problems), ATTESTATION, i.clientRef ?? null, tx.at, tx.at, tx.agency,
     );
     tx.audit('buscheck.submit', 'bus_check', checkId, null, {
-      vehicleId: v.id, unit: v.unit, list: listRow.name, baseId: i.baseId, shortages: report.shortages.length, problems: problems.length, km: i.km, hours: i.hours,
+      vehicleId: v.id, unit: v.unit, list: listRow.name, baseId: i.baseId, shortages: report.shortages.length, problems: i.problems.length, km: i.km, hours: i.hours,
       emt1: emt1!.name, emt2: emt2!.name, ...(driver ? { driver: driver.name } : {}),
     });
     tx.auditMany([{ action: 'reading.log', entityType: 'vehicle', entityId: v.id, before: { engineHours: v.engine_hours }, after: { hours: i.hours, km: i.km, flagged: reading.flagged, source: 'bus_check' } }, ...audits]);
@@ -321,7 +323,7 @@ export async function submitCheck(env: Env, actor: Actor, body: unknown): Promis
     }
     const w = shiftFor(Date.parse(tx.at), shiftMinutes((await getSettings(env.DB, ag)).busCheckShifts));
     return {
-      ok: true, id: checkId, at: tx.at, shortages: report.shortages.length, newProblems: newIssues.length - i.problems.length, joined: joins.length, reported: i.problems.length,
+      ok: true, id: checkId, at: tx.at, shortages: report.shortages.length, newShortages: newIssues.length - i.problems.length, joined: joins.length, reported: i.problems.length,
       flagged: reading.flagged, warnings: reading.warnings, shift: `${hhmm(shiftMinutes((await getSettings(env.DB, ag)).busCheckShifts)[w.index])} shift on ${dmy(w.date)}`,
     };
   }
@@ -380,7 +382,7 @@ async function historyWhere(env: Env, actor: Actor, sp: URLSearchParams) {
 }
 const HISTORY_FROM = `FROM bus_checks c JOIN vehicles v ON v.agency_id = c.agency_id AND v.id = c.vehicle_id
   LEFT JOIN bases b ON b.agency_id = c.agency_id AND b.id = c.base_id LEFT JOIN users u ON u.agency_id = c.agency_id AND u.id = c.submitted_by`;
-const HISTORY_COLS = `c.id, c.vehicle_id, v.unit, c.base_id, b.name AS base_name, c.list_name, c.submitted_at, c.submitted_by, u.name AS by_name, c.crew, c.mileage_km, c.engine_hours, c.shortages, c.reading_flagged, json_array_length(c.problems) AS problem_count`;
+const HISTORY_COLS = `c.id, c.vehicle_id, v.unit, c.base_id, b.name AS base_name, c.list_name, c.submitted_at, c.submitted_by, u.name AS by_name, c.crew, c.mileage_km, c.engine_hours, c.shortages, c.reading_flagged, (SELECT COUNT(*) FROM json_each(c.problems) q WHERE json_extract(q.value, '$.kind') = 'reported') AS problem_count`;
 function historyRow(r: any) {
   const crew = j(r.crew, {});
   return {
@@ -414,7 +416,7 @@ export async function checksCsv(env: Env, actor: Actor, sp: URLSearchParams) {
   const { where, params } = await historyWhere(env, actor, sp);
   const raw = await all<any>(env.DB, `SELECT ${HISTORY_COLS} ${HISTORY_FROM} WHERE ${where} ORDER BY c.submitted_at DESC, c.id DESC LIMIT ?`, ...params, EXPORT_MAX + 1);
   const truncated = raw.length > EXPORT_MAX, rows = raw.slice(0, EXPORT_MAX).map(historyRow);
-  const head = ['When (Guyana time)', 'Unit', 'Station', 'List', 'EMT 1', 'EMT 2', 'Driver', 'Mileage (km)', 'Engine hours', 'Shortages', 'Problems sent to maintenance', 'Submitted by', 'Check id'];
+  const head = ['When (Guyana time)', 'Unit', 'Station', 'List', 'EMT 1', 'EMT 2', 'Driver', 'Mileage (km)', 'Engine hours', 'Shortages', 'Problems reported', 'Submitted by', 'Check id'];
   const body = '﻿' + toCsv([head, ...rows.map((r) => [dmyHM(r.at), r.unit, r.base, r.list, r.emt1, r.emt2, r.driver, r.km, r.hours, r.shortages, r.problems, r.byName, r.id].map(csvSafe))]);
   return new Response(body, { headers: csvHeaders(`bus-checks-${actor.agencyId.toLowerCase()}-${gyDate(Date.now())}.csv`, { 'X-Rows': String(rows.length), 'X-Truncated': truncated ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Rows, X-Truncated' }) });
 }
@@ -530,7 +532,115 @@ export async function shortagesCsv(env: Env, actor: Actor, sp: URLSearchParams) 
     LEFT JOIN bases b ON b.agency_id = c.agency_id AND b.id = c.base_id, json_each(c.shortage_items) s WHERE c.agency_id = ? AND c.shortages > 0 AND c.submitted_at >= ? AND c.submitted_at < ?${sc.sql}
     ORDER BY c.submitted_at DESC, c.id DESC, s.key LIMIT ?`, actor.agencyId, gyDayStartISO(from!), gyDayEndISO(to!), ...sc.params, EXPORT_MAX + 1);
   const truncated = raw.length > EXPORT_MAX;
-  const head = ['When (Guyana time)', 'Unit', 'Station', 'Section', 'Item code', 'Item', 'What was found', 'Severity', 'Joined an open problem', 'Check id'];
+  const head = ['When (Guyana time)', 'Unit', 'Station', 'Section', 'Item code', 'Item', 'What was found', 'Severity', 'Added to an open shortage', 'Check id'];
   const rows = raw.slice(0, EXPORT_MAX).map((r) => { const s = j(r.s, {}); return [dmyHM(r.submitted_at), r.unit, r.base_name ?? '', s.section ?? '', s.code ?? '', s.name ?? '', s.found ?? '', s.severity ?? '', s.joined ? 'Yes' : 'No', r.id].map(csvSafe); });
   return new Response('﻿' + toCsv([head, ...rows]), { headers: csvHeaders(`bus-check-shortages-${actor.agencyId.toLowerCase()}-${gyDate(Date.now())}.csv`, { 'X-Rows': String(rows.length), 'X-Truncated': truncated ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Rows, X-Truncated' }) });
+}
+
+/* ====================================================================== equipment shortages */
+// A shortage is a row in `issues` with source 'bus_check' (so the de-duplication, the link to the check and the history keep working), but it is NOT a
+// vehicle problem: it never reaches the Problems page, a work order, a count or a unit's status. It is closed by "Mark restocked" (status 'restocked').
+
+/** The Equipment tab needs the reports right (a supervisor's is limited to their bases) or the restock right. */
+const needEquipment = (actor: Actor) => { if (!can(actor, 'busCheckReports') && !can(actor, 'busCheckRestock')) throw forbidden(); };
+const OPEN_SQL = `i.status IN ('open', 'in_work_order')`;
+const SHORTAGE_COLS = `i.id, i.vehicle_id, v.unit, v.base_id, b.name AS base_name, i.source_ref, i.title, i.description, i.status, i.reported_at, i.restocked_at, i.restocked_by, ru.name AS restocked_by_name,
+  (SELECT s.value FROM bus_checks c0, json_each(c0.shortage_items) s WHERE c0.agency_id = i.agency_id AND c0.id = i.bus_check_id AND json_extract(s.value, '$.itemId') = i.source_ref LIMIT 1) AS item`;
+const SHORTAGE_FROM = `FROM issues i JOIN vehicles v ON v.agency_id = i.agency_id AND v.id = i.vehicle_id LEFT JOIN bases b ON b.agency_id = i.agency_id AND b.id = v.base_id
+  LEFT JOIN users ru ON ru.agency_id = i.agency_id AND ru.id = i.restocked_by`;
+const SHORTAGE_MAX = 1000;
+
+export interface ShortageRow {
+  id: string; vehicleId: string; unit: string; baseId: string | null; base: string; itemId: string; code: string; name: string; section: string;
+  title: string; found: string; firstAt: string; checks: number; lastAt: string; lastCheckId: string | null; status: string;
+  restockedAt: string | null; restockedBy: string | null; restockedByName: string;
+}
+/** Shortages of one agency (the caller adds the status and any unit or base conditions), with how many checks found each and the last of them. */
+async function shortageRows(env: Env, agency: string, where: string, params: unknown[], order: 'unit' | 'restocked'): Promise<ShortageRow[]> {
+  const raw = await all<any>(env.DB, `SELECT ${SHORTAGE_COLS} ${SHORTAGE_FROM} WHERE i.agency_id = ? AND i.source = '${SHORTAGE_SOURCE}' AND ${where}
+    ORDER BY ${order === 'unit' ? 'v.unit, i.reported_at, i.id' : 'i.restocked_at DESC, i.id'} LIMIT ?`, agency, ...params, SHORTAGE_MAX);
+  if (!raw.length) return [];
+  const stats = await all<any>(env.DB, `SELECT json_extract(p.value, '$.issueId') AS iid, COUNT(*) AS n, MAX(c.submitted_at || '~' || c.id) AS last
+    FROM bus_checks c, json_each(c.problems) p WHERE c.agency_id = ? AND c.vehicle_id IN (SELECT value FROM json_each(?)) AND json_extract(p.value, '$.issueId') IN (SELECT value FROM json_each(?)) GROUP BY iid`,
+    agency, JSON.stringify([...new Set(raw.map((r) => r.vehicle_id))]), JSON.stringify(raw.map((r) => r.id)));
+  const byIssue = new Map(stats.map((s) => [s.iid, s]));
+  return raw.map((r) => {
+    const it = j(r.item, {}), st = byIssue.get(r.id), last = String(st?.last ?? ''), k = last.indexOf('~');
+    return {
+      id: r.id, vehicleId: r.vehicle_id, unit: r.unit, baseId: r.base_id, base: r.base_name ?? '', itemId: r.source_ref ?? '', code: it.code ?? '', name: it.name ?? String(r.title).replace(/^Bus check: /, ''), section: it.section ?? '',
+      title: r.title, found: latestFound(r.description), firstAt: r.reported_at, checks: st?.n ?? 1, lastAt: k > 0 ? last.slice(0, k) : r.reported_at, lastCheckId: k > 0 ? last.slice(k + 1) : null, status: r.status,
+      restockedAt: r.restocked_at ?? null, restockedBy: r.restocked_by ?? null, restockedByName: r.restocked_by_name ?? '',
+    };
+  });
+}
+const byBaseThenUnit = (a: ShortageRow, b: ShortageRow) => (a.base === 'HQ' ? -1 : b.base === 'HQ' ? 1 : (a.base || '~').localeCompare(b.base || '~')) || a.unit.localeCompare(b.unit, undefined, { numeric: true }) || a.firstAt.localeCompare(b.firstAt);
+
+const equipFilterIn = z.object({ vehicleId: zId.optional(), baseId: zId.optional() });
+/** The conditions for the Equipment list: the person's bases, plus a unit and/or a base (the unit's current base). A unit or base outside the agency or the person's bases is "not found". */
+async function equipmentWhere(env: Env, actor: Actor, sp: URLSearchParams) {
+  const f = equipFilterIn.safeParse({ vehicleId: blank(sp.get('vehicleId')), baseId: blank(sp.get('baseId')) });
+  if (!f.success) throw bad(`${f.error.issues[0].path.join('.')}: ${f.error.issues[0].message}`);
+  const sc = scopeSql(actor, 'v');
+  const w: string[] = [], p: unknown[] = [];
+  if (f.data.vehicleId) { await scopedVehicle(env, actor, f.data.vehicleId); w.push('i.vehicle_id = ?'); p.push(f.data.vehicleId); }
+  if (f.data.baseId) { if (!(await inAgency(env.DB, 'bases', actor.agencyId, f.data.baseId))) throw notFound('That base does not exist.'); w.push('v.base_id = ?'); p.push(f.data.baseId); }
+  return { sql: w.map((x) => ' AND ' + x).join('') + sc.sql, params: [...p, ...sc.params] };
+}
+
+/** GET /api/bus-checks/equipment?baseId&vehicleId&recent=1: the open equipment shortages, and with recent=1 those restocked in the last 30 days. */
+export async function equipmentList(env: Env, actor: Actor, sp: URLSearchParams) {
+  needEquipment(actor);
+  const c = await equipmentWhere(env, actor, sp);
+  const open = (await shortageRows(env, actor.agencyId, OPEN_SQL + c.sql, c.params, 'unit')).sort(byBaseThenUnit);
+  const since = iso(Date.now() - RESTOCK_RECENT_DAYS * 864e5);
+  const recent = sp.get('recent') === '1' ? await shortageRows(env, actor.agencyId, `i.status = '${RESTOCKED}' AND i.restocked_at >= ?` + c.sql, [since, ...c.params], 'restocked') : [];
+  return { open, recent, recentDays: RESTOCK_RECENT_DAYS };
+}
+
+/** GET /api/bus-checks/equipment/export: the open shortages (same filters), as CSV. */
+export async function equipmentCsv(env: Env, actor: Actor, sp: URLSearchParams) {
+  needEquipment(actor);
+  const c = await equipmentWhere(env, actor, sp);
+  const rows = (await shortageRows(env, actor.agencyId, OPEN_SQL + c.sql, c.params, 'unit')).sort(byBaseThenUnit);
+  const head = ['Station', 'Unit', 'Section', 'Item code', 'Item', 'What was found', 'First found (Guyana time)', 'Checks that found it', 'Last check (Guyana time)', 'Last check id'];
+  const body = '﻿' + toCsv([head, ...rows.map((r) => [r.base, r.unit, r.section, r.code, r.name, r.found, dmyHM(r.firstAt), r.checks, dmyHM(r.lastAt), r.lastCheckId ?? ''].map(csvSafe))]);
+  return new Response(body, { headers: csvHeaders(`bus-check-equipment-${actor.agencyId.toLowerCase()}-${gyDate(Date.now())}.csv`, { 'X-Rows': String(rows.length), 'X-Truncated': '0', 'Access-Control-Expose-Headers': 'X-Rows, X-Truncated' }) });
+}
+
+/** GET /api/bus-checks/equipment/known?vehicleId=: what is already reported short on a unit, for the crew's check screen. The right to do bus checks on that unit is enough. */
+export async function knownShortages(env: Env, actor: Actor, sp: URLSearchParams) {
+  if (!can(actor, 'busCheck')) throw forbidden();
+  const vehicleId = blank(sp.get('vehicleId'));
+  if (!vehicleId || !zId.safeParse(vehicleId).success) throw bad('vehicleId: Choose a unit.');
+  const v = await agencyRow<any>(env.DB, 'vehicles', actor.agencyId, vehicleId); // another agency's unit is "does not exist"
+  if (!v || !canOnVehicle(actor, 'busCheck', v.base_id)) throw notFound('That unit does not exist.');
+  const rows = await shortageRows(env, actor.agencyId, OPEN_SQL + ' AND i.vehicle_id = ?', [v.id], 'unit');
+  return { shortages: rows.map((r) => ({ itemId: r.itemId, code: r.code, name: r.name, section: r.section, found: r.found, firstAt: r.firstAt, checks: r.checks, lastAt: r.lastAt })) };
+}
+
+const restockIn = z.object({ ids: z.array(zId).min(1, 'Choose at least one shortage.').max(100), note: zText(RESTOCK_NOTE_MAX).default('') });
+/**
+ * POST /api/bus-checks/equipment/restock { ids, note? }: closes the shortages (status 'restocked'), records who and when, appends the note to each one's description
+ * and writes one `issue.restock` audit row each, in one batch. An id that is not a shortage of this agency, or is on a unit outside the person's bases, is "not found"
+ * (and then nothing is changed). A shortage that is already restocked answers 409.
+ */
+export async function restockShortages(env: Env, actor: Actor, body: unknown) {
+  if (!can(actor, 'busCheckRestock')) throw forbidden();
+  const i = parse(restockIn, body);
+  const ids = [...new Set(i.ids)], ag = actor.agencyId;
+  const rows = await all<any>(env.DB, `SELECT i.id, i.vehicle_id, i.title, i.status, v.base_id FROM issues i JOIN vehicles v ON v.agency_id = i.agency_id AND v.id = i.vehicle_id
+    WHERE i.agency_id = ? AND i.source = '${SHORTAGE_SOURCE}' AND i.id IN (SELECT value FROM json_each(?))`, ag, JSON.stringify(ids));
+  if (rows.length !== ids.length || rows.some((r) => !vehicleInScope(actor, 'busCheckRestock', r.base_id))) throw notFound('One of those shortages does not exist.');
+  if (rows.some((r) => r.status !== 'open' && r.status !== 'in_work_order')) throw conflict('Some of these shortages were already marked restocked. The list has been refreshed.', 'already_restocked');
+  const tx = new Tx(env.DB, actor), js = JSON.stringify(ids);
+  tx.guard(`(SELECT COUNT(*) FROM issues WHERE agency_id = ? AND source = '${SHORTAGE_SOURCE}' AND status IN ('open', 'in_work_order') AND id IN (SELECT value FROM json_each(?))) = ?`, ag, js, ids.length);
+  const add = `\n\nRestocked by ${actor.name} on ${dmyHM(tx.at)}.${i.note ? ' Note: ' + i.note : ''}`;
+  tx.run(
+    `UPDATE issues SET status = '${RESTOCKED}', restocked_at = ?, restocked_by = ?, description = CASE WHEN length(description) + length(?) <= 4000 THEN description || ? ELSE description END, seq = ${SEQ}, updated_at = ?
+     WHERE agency_id = ? AND source = '${SHORTAGE_SOURCE}' AND id IN (SELECT value FROM json_each(?))`,
+    tx.at, actor.id, add, add, tx.at, ag, js,
+  );
+  tx.auditMany(rows.map((r) => ({ action: 'issue.restock', entityType: 'issue', entityId: r.id as string, before: { status: r.status }, after: { status: RESTOCKED, vehicleId: r.vehicle_id, title: r.title, ...(i.note ? { note: i.note } : {}) } })));
+  await tx.commit();
+  return { ok: true, restocked: ids.length };
 }

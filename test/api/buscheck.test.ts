@@ -193,7 +193,7 @@ describe('submitting', () => {
   it('saves the check, the reading, and nothing else when everything is fine', async () => {
     const v = await vehicleNow('v-01');
     const r = must(await submit(crew.cookie, await payload('v-01')), 'submit');
-    expect(r).toMatchObject({ shortages: 0, newProblems: 0, joined: 0, reported: 0 });
+    expect(r).toMatchObject({ shortages: 0, newShortages: 0, joined: 0, reported: 0 });
     const c = (await row<any>('SELECT * FROM bus_checks WHERE id = ?', r.id))!;
     expect(c).toMatchObject({ agency_id: 'GEMA', vehicle_id: 'v-01', list_id: listId, shortages: 0, mileage_km: v.odometer_km + 5, engine_hours: v.engine_hours + 1, submitted_by: crew.user.id });
     expect(JSON.parse(c.crew)).toMatchObject({ emt1: { name: 'Ann Crew', userId: null }, emt2: { name: 'Bob Crew' } });
@@ -257,7 +257,7 @@ describe('submitting', () => {
     expect((await vehicleNow('v-01')).engine_hours).toBe(v.engine_hours);
     expect(await row('SELECT flagged FROM meter_readings WHERE id = (SELECT reading_id FROM bus_checks WHERE id = ?)', r.id)).toEqual({ flagged: 1 });
   });
-  it('shortages become problems with the agreed titles and severities', async () => {
+  it('shortages are recorded with the agreed titles and severities', async () => {
     const all = sections.flatMap((s) => s.items);
     const cnt = all.find((i: any) => i.kind === 'count' && i.min >= 4), chk = all.find((i: any) => i.kind === 'check'), num = all.find((i: any) => i.kind === 'number'), dt = all.find((i: any) => i.kind === 'date');
     const body = await payload('v-01');
@@ -266,7 +266,7 @@ describe('submitting', () => {
     body.answers[num.id] = { value: 800 };
     body.answers[dt.id] = { date: '2025-02-01' };
     const r = must(await submit(crew.cookie, body), 'submit');
-    expect(r).toMatchObject({ shortages: 4, newProblems: 4, joined: 0 });
+    expect(r).toMatchObject({ shortages: 4, newShortages: 4, joined: 0 });
     const is = await rows<any>("SELECT title, severity, status, source, source_ref, bus_check_id, vehicle_id, agency_id FROM issues WHERE bus_check_id = ? ORDER BY title", r.id);
     const by = (ref: string) => is.find((x: any) => x.source_ref === ref);
     expect(by(cnt.id)).toMatchObject({ title: `Bus check: ${cnt.name} short (${cnt.min - 2} of ${cnt.min}${cnt.unit ? ' ' + cnt.unit : ''})`, severity: 'minor', status: 'open', source: 'bus_check', vehicle_id: 'v-01', agency_id: 'GEMA' });
@@ -274,20 +274,18 @@ describe('submitting', () => {
     expect(by(num.id)).toMatchObject({ title: `Bus check: ${num.name} 800${num.unit ? ' ' + num.unit : ''} (minimum ${num.min})`, severity: 'major' });
     expect(by(dt.id).title).toBe(`Bus check: ${dt.name} expired 01/02/2025`);
     expect(by(dt.id).severity).toBe('major');
-    // they are ordinary problems: visible in sync, with the link to the check
-    const sync = (await syncAll(fm)).data.issues.filter((x: any) => x.busCheckId === r.id);
-    expect(sync).toHaveLength(4);
-    expect(sync[0]).toMatchObject({ source: 'bus_check' });
+    // they are equipment shortages, not vehicle problems: none of them is sent to the browser as a problem
+    expect((await syncAll(fm)).data.issues.filter((x: any) => x.busCheckId === r.id)).toHaveLength(0);
     expect(await row('SELECT shortages FROM bus_checks WHERE id = ?', r.id)).toEqual({ shortages: 4 });
     // the unit is not taken out of service by a shortage
     expect((await vehicleNow('v-01')).status).toBe('in_service');
   });
-  it('de-duplicates: the same open shortage joins the existing problem', async () => {
+  it('de-duplicates: the same open shortage joins the existing shortage', async () => {
     const cnt = sections.flatMap((s) => s.items).find((i: any) => i.kind === 'count' && i.min >= 2);
     const mk = async (qty: number) => { const b = await payload('v-01'); b.answers[cnt.id] = { status: 'short', qty }; return must(await submit(crew.cookie, b), 'submit'); };
     const a = await mk(0), b = await mk(1);
-    expect(a).toMatchObject({ newProblems: 1, joined: 0 });
-    expect(b).toMatchObject({ newProblems: 0, joined: 1, shortages: 1 });
+    expect(a).toMatchObject({ newShortages: 1, joined: 0 });
+    expect(b).toMatchObject({ newShortages: 0, joined: 1, shortages: 1 });
     const is = await rows<any>("SELECT id, description, bus_check_id FROM issues WHERE source = 'bus_check' AND source_ref = ?", cnt.id);
     expect(is).toHaveLength(1);
     expect(is[0].bus_check_id).toBe(a.id);
@@ -296,15 +294,15 @@ describe('submitting', () => {
     expect(pb).toEqual([{ issueId: is[0].id, kind: 'existing', itemId: cnt.id }]);
     // another unit is separate
     const c2 = await payload('v-02'); c2.answers[cnt.id] = { status: 'short', qty: 0 };
-    expect(must(await submit(crew.cookie, c2), 'v-02').newProblems).toBe(1);
-    // once the problem is dismissed, the next check creates a new one
-    await post(fm, `/api/issues/${is[0].id}/dismiss`);
-    expect((await mk(0)).newProblems).toBe(1);
+    expect(must(await submit(crew.cookie, c2), 'v-02').newShortages).toBe(1);
+    // once the shortage is restocked, the next check creates a new one
+    must(await post(fm, '/api/bus-checks/equipment/restock', { ids: [is[0].id] }), 'restock');
+    expect((await mk(0)).newShortages).toBe(1);
   });
   it('problems the crew report inside the check use the normal rules (critical takes an available unit out of service)', async () => {
     const body = await payload('v-01', { problems: [{ title: 'Siren dead', description: 'No sound', severity: 'critical' }, { title: 'Cracked mirror', severity: 'minor' }] });
     const r = must(await submit(crew.cookie, body), 'submit');
-    expect(r).toMatchObject({ shortages: 0, newProblems: 0, reported: 2 });
+    expect(r).toMatchObject({ shortages: 0, newShortages: 0, reported: 2 });
     const is = await rows<any>("SELECT title, severity, source, bus_check_id FROM issues WHERE bus_check_id = ? ORDER BY title", r.id);
     expect(is).toEqual([{ title: 'Cracked mirror', severity: 'minor', source: 'bus_check_report', bus_check_id: r.id }, { title: 'Siren dead', severity: 'critical', source: 'bus_check_report', bus_check_id: r.id }]);
     expect((await vehicleNow('v-01')).status).toBe('oos_repair');
@@ -587,7 +585,7 @@ describe('agency isolation (both directions)', () => {
     const g = await payload('v-01'); g.answers[cnt.id] = { status: 'short', qty: 0 };
     const b = bPayload(); b.answers[cnt.id] = { status: 'short', qty: 0 };
     must(await submit(fm, g), 'G'); const rb = must(await submit(bAdmin, b), 'B');
-    expect(rb).toMatchObject({ newProblems: 1, joined: 0 }); // B did not join GEMA's open problem (same item id!)
+    expect(rb).toMatchObject({ newShortages: 1, joined: 0 }); // B did not join GEMA's open problem (same item id!)
     expect(await row("SELECT COUNT(*) AS n FROM issues WHERE source = 'bus_check' AND agency_id = 'BB'")).toEqual({ n: 1 });
     expect(await row("SELECT COUNT(*) AS n FROM issues WHERE source = 'bus_check' AND agency_id = 'GEMA'")).toEqual({ n: 1 });
     expect((await api('GET', '/api/bus-checks/shortages', { cookie: bAdmin })).json.items).toHaveLength(1);

@@ -28,8 +28,8 @@ const UPLOADS_OFF_MSG = 'Photo and PDF uploads are turned off for now.';
 async function authorize(c: Context<AppEnv>, entityType: string, entityId: string) {
   const user = c.var.user;
   if (entityType === 'issue') {
-    const is = await first<any>(c.env.DB, 'SELECT vehicle_id FROM issues WHERE agency_id = ? AND id = ?', user.agencyId, entityId); // another agency's problem is "no longer exists"
-    if (!is) throw notFound('That problem no longer exists.');
+    const is = await first<any>(c.env.DB, 'SELECT vehicle_id, source FROM issues WHERE agency_id = ? AND id = ?', user.agencyId, entityId); // another agency's problem is "no longer exists"; so is an equipment shortage (not a problem)
+    if (!is || is.source === 'bus_check') throw notFound('That problem no longer exists.');
     const v = await first<any>(c.env.DB, 'SELECT base_id FROM vehicles WHERE agency_id = ? AND id = ?', user.agencyId, is.vehicle_id);
     if (!canOnVehicle(user, 'report', v?.base_id)) throw forbidden();
     return;

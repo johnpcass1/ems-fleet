@@ -73,6 +73,27 @@ const dmy = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`
 
 /* ---------------------------------------------------------------- answers: validation and shortages */
 
+/**
+ * `issues.source` of an equipment shortage found by a check. Shortages live in the issues table (de-duplication, links and history work the
+ * same way) but they are NOT vehicle problems: they never reach the Problems page, work orders, counts or a unit's status.
+ */
+export const SHORTAGE_SOURCE = 'bus_check';
+/** `issues.source` of a vehicle problem the crew typed in during a check. It stays an ordinary problem. */
+export const REPORT_SOURCE = 'bus_check_report';
+/** Status of a shortage that someone has restocked (the issue status model is free text; see ISSUE_ST). */
+export const RESTOCKED = 'restocked';
+export const RESTOCK_NOTE_MAX = 200;
+/** How many days "Restocked recently" reaches back. */
+export const RESTOCK_RECENT_DAYS = 30;
+/** What was found the last time, read from a shortage's description (the first finding, then one "Found again" paragraph per later check). */
+export function latestFound(description: string): string {
+  const d = String(description || '').split('\n\nRestocked')[0];
+  const parts = d.split('\n\nFound again by a bus check on ');
+  const cut = (t: string) => t.split(' Note: ')[0].split('\nNote: ')[0].trim();
+  if (parts.length > 1) { const last = parts[parts.length - 1], k = last.indexOf(': '); return cut(k >= 0 ? last.slice(k + 2) : last); }
+  return cut(parts[0].split('\n')[2] ?? '');
+}
+
 export interface Shortage {
   itemId: string; code: string; name: string; kind: ItemKind; section: string;
   /** The app's problem severity: failed checks, readings and dates are "major"; a short count is "minor". Never "critical" (that would take the unit out of service). */

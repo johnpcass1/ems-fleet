@@ -26,7 +26,7 @@ export async function syncSince(db: D1Database, actor: Actor, sinceRaw: number, 
   const stmts: D1PreparedStatement[] = colls.map((c) => {
     const s = SPECS[c];
     if (c === 'people' && away) return db.prepare(`${s.select} WHERE (X.agency_id = ? OR X.id = ?) AND X.seq > ? AND X.seq <= ?`).bind(ag, actor.id, since, cursor);
-    return db.prepare(`${s.select} WHERE X.agency_id = ? AND X.seq > ? AND X.seq <= ?`).bind(ag, since, cursor);
+    return db.prepare(`${s.select} WHERE X.agency_id = ? AND X.seq > ? AND X.seq <= ?${s.syncWhere ? ' AND ' + s.syncWhere : ''}`).bind(ag, since, cursor);
   });
   if (!full) stmts.push(db.prepare('SELECT coll, id FROM tombstones WHERE agency_id = ? AND seq > ? AND seq <= ?').bind(ag, since, cursor));
   const res = await db.batch(stmts);

@@ -34,6 +34,8 @@ export const PERM: Record<string, Role[]> = {
   /** Bus checks (start-of-shift inspection). Doing one is limited to units the person may act on; reports are limited to a supervisor's own bases. */
   busCheck: [...FM_SUP, 'crew'],
   busCheckReports: FM_SUP,
+  /** Mark equipment shortages found by bus checks as restocked. Like the reports, a supervisor's right reaches only units at their own bases. */
+  busCheckRestock: FM_SUP,
   /** Change the bus check requirement lists (what is checked, and for which unit types). */
   busCheckEdit: FM,
 };
@@ -53,7 +55,7 @@ export const PERM_GROUPS: { title: string; items: [string, string][] }[] = [
   { title: 'Problems', items: [['report', 'Report problems'], ['issues', 'Manage problems (create work orders, dismiss)'], ['upload', 'Upload photos and PDFs'], ['delAttach', 'Remove photos and PDFs']] },
   { title: 'Work orders', items: [['createWO', 'Create work orders'], ['workWO', 'Work on work orders'], ['approve', 'Approve costly work orders'], ['closeWO', 'Close work orders'], ['cancelWO', 'Cancel work orders']] },
   { title: 'Parts and mechanics', items: [['parts', 'Manage parts and stock'], ['mechanics', 'Manage the mechanics list']] },
-  { title: 'Bus checks', items: [['busCheck', 'Do bus checks'], ['busCheckReports', 'View bus check reports'], ['busCheckEdit', 'Edit bus check requirements']] },
+  { title: 'Bus checks', items: [['busCheck', 'Do bus checks'], ['busCheckReports', 'View bus check reports'], ['busCheckRestock', 'Mark equipment restocked'], ['busCheckEdit', 'Edit bus check requirements']] },
   { title: 'Admin', items: [['setup', 'Change setup (bases, PM programs, settings)'], ['users', 'Manage people'], ['viewReports', 'View reports']] },
 ];
 
