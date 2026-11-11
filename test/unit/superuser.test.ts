@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isSuperuserEmail } from '../../src/worker/env';
-import { PERM, PERM_GROUPS, PERM_KEYS, can, canManageUser, effectivePerms, manageableRoles } from '../../src/shared/perm';
+import { EDITABLE_KEYS, PERM, PERM_GROUPS, PERM_KEYS, can, canManageUser, effectivePerms, manageableRoles } from '../../src/shared/perm';
 
 describe('isSuperuserEmail', () => {
   it('compares trimmed and case-insensitively, supports a list, and is false when unset or empty', () => {
@@ -18,7 +18,8 @@ describe('isSuperuserEmail', () => {
 describe('permission model', () => {
   it('every key is labelled exactly once', () => {
     const keys = PERM_GROUPS.flatMap((g) => g.items.map((i) => i[0]));
-    expect([...keys].sort()).toEqual([...PERM_KEYS].sort());
+    expect([...keys].sort()).toEqual([...EDITABLE_KEYS].sort());
+    expect(keys).not.toContain('backups');
   });
   it('role defaults are unchanged and overrides win; the super user has everything', () => {
     expect(can({ role: 'crew' }, 'report')).toBe(true);

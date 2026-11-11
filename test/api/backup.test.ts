@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { gunzipSync } from 'node:zlib';
-import { api, as, seedDemo, E } from './helpers';
+import { api, as, seedDemo, superCookie, E } from './helpers';
 import { backupStep, listBackups, BACKUP_TABLES, KEEP_BACKUPS } from '../../src/worker/backup';
 import worker from '../../src/worker/index';
 
@@ -102,24 +102,30 @@ describe('nightly backup', () => {
 });
 
 describe('backup admin API', () => {
-  it('lists, runs, downloads; only for the system administrator', async () => {
+  it('lists, runs, downloads; only for the super user, not even the system administrator', async () => {
     const admin = (await as('system_admin')).cookie;
+    const su = await superCookie();
     const fm = (await as('fleet_manager')).cookie;
     expect((await api('GET', '/api/admin/backups', { cookie: fm })).status).toBe(403);
     expect((await api('POST', '/api/admin/backups/step', { cookie: fm, body: {} })).status).toBe(403);
+    for (const c of [admin, fm]) {
+      expect((await api('GET', '/api/admin/backups', { cookie: c })).status).toBe(403);
+      expect((await api('POST', '/api/admin/backups/step', { cookie: c, body: {} })).status).toBe(403);
+      expect((await api('GET', '/api/admin/backups/2026-01-01', { cookie: c })).status).toBe(403);
+    }
     let r: any; let guard = 0;
-    do { r = (await api('POST', '/api/admin/backups/step', { cookie: admin, body: {} })).json; } while (r.status === 'running' && ++guard < 200);
+    do { r = (await api('POST', '/api/admin/backups/step', { cookie: su, body: {} })).json; } while (r.status === 'running' && ++guard < 200);
     expect(r.status).toBe('done');
-    const list = await api('GET', '/api/admin/backups', { cookie: admin });
+    const list = await api('GET', '/api/admin/backups', { cookie: su });
     expect(list.json.backups).toHaveLength(1);
     const date = list.json.backups[0].date;
     expect(list.json.backups[0].size).toBeGreaterThan(100);
-    const dl = await api('GET', `/api/admin/backups/${date}`, { cookie: admin });
+    const dl = await api('GET', `/api/admin/backups/${date}`, { cookie: su });
     expect(dl.status).toBe(200);
     expect(dl.headers.get('content-disposition')).toMatch(/attachment; filename="gema-fleet-\d{4}-\d{2}-\d{2}\.json\.gz"/);
     const json = JSON.parse(await gunzip(await dl.res.arrayBuffer()));
     expect(json.tables.vehicles).toHaveLength(20);
-    expect((await api('GET', '/api/admin/backups/not-a-date', { cookie: admin })).status).toBe(400);
-    expect((await api('GET', '/api/admin/backups/2020-01-01', { cookie: admin })).status).toBe(404);
+    expect((await api('GET', '/api/admin/backups/not-a-date', { cookie: su })).status).toBe(400);
+    expect((await api('GET', '/api/admin/backups/2020-01-01', { cookie: su })).status).toBe(404);
   });
 });

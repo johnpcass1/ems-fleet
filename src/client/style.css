@@ -518,3 +518,40 @@ body.wallmode .dcell .e,body.wallmode .dcell .m{font-size:14px}
 .permrow .btn.link{flex:none;padding:4px 0}
 .permrow .hint{display:block;margin-top:2px;font-size:12.5px;color:var(--muted)}
 .permrow input:disabled + span{color:var(--muted)}
+
+/* ---------- roles & permissions matrix ---------- */
+.permrow .hint.src{display:inline-block;margin-top:0}
+.rpick{display:none;padding:0 12px 10px}
+table.rolemx{min-width:700px}
+table.rolemx tbody tr:hover th.pl{background:var(--surface-2)}
+table.rolemx th.pl{min-width:190px;text-align:left;text-transform:none;letter-spacing:0;font:500 14px/1.3 var(--sans);color:var(--ink);white-space:normal;position:sticky;left:0;z-index:1;background:var(--surface)}
+table.rolemx thead th.pl{background:var(--surface-2);font:600 11.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+table.rolemx th.rc,table.rolemx td.rc{text-align:center;min-width:84px;white-space:normal}
+table.rolemx th.rc .rname{display:block;white-space:normal;line-height:1.2}
+table.rolemx th.rc .rro{display:block;margin-top:2px;font:500 10.5px/1.2 var(--sans);text-transform:none;letter-spacing:0;color:var(--muted)}
+table.rolemx tr.grp th{height:28px;background:var(--surface-2);font:600 11.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;position:sticky;left:0}
+table.rolemx td.ro,table.rolemx th.rc:has(.rro){background:var(--surface-2);color:var(--muted)}
+.rcell{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.rcell input:disabled{cursor:not-allowed}
+.rcell input:disabled + .rstate{color:var(--muted)}
+.rstate{font-size:12.5px;min-width:24px;text-align:left}
+.rchg{display:flex;width:max-content;margin:3px auto 0;font-size:11px;padding:0 5px}
+.rbtns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+table.rolemx tr.rfoot td,table.rolemx tr.rfoot th{padding-top:10px;padding-bottom:10px;vertical-align:top}
+@media (max-width:719.98px){
+  .rpick{display:block}
+  table.rolemx{min-width:0}
+  table.rolemx th.pl{min-width:0;position:static}
+  table.rolemx tr.grp th{position:static}
+  table.rolemx[data-pick] th[data-role],table.rolemx[data-pick] td[data-role]{display:none}
+  .rbtns{flex-direction:row;flex-wrap:wrap}
+}
+@media (max-width:719.98px){
+  #roleMatrix[data-pick="system_admin"] th[data-role="system_admin"],#roleMatrix[data-pick="system_admin"] td[data-role="system_admin"]{display:table-cell}
+  #roleMatrix[data-pick="fleet_manager"] th[data-role="fleet_manager"],#roleMatrix[data-pick="fleet_manager"] td[data-role="fleet_manager"]{display:table-cell}
+  #roleMatrix[data-pick="base_supervisor"] th[data-role="base_supervisor"],#roleMatrix[data-pick="base_supervisor"] td[data-role="base_supervisor"]{display:table-cell}
+  #roleMatrix[data-pick="mechanic"] th[data-role="mechanic"],#roleMatrix[data-pick="mechanic"] td[data-role="mechanic"]{display:table-cell}
+  #roleMatrix[data-pick="crew"] th[data-role="crew"],#roleMatrix[data-pick="crew"] td[data-role="crew"]{display:table-cell}
+  #roleMatrix[data-pick="dispatcher"] th[data-role="dispatcher"],#roleMatrix[data-pick="dispatcher"] td[data-role="dispatcher"]{display:table-cell}
+  #roleMatrix[data-pick="viewer"] th[data-role="viewer"],#roleMatrix[data-pick="viewer"] td[data-role="viewer"]{display:table-cell}
+}

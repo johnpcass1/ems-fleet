@@ -50,10 +50,12 @@ describe('role matrix (403 for everyone not allowed)', () => {
   it('remove sample data: managers only', async () => {
     for (const who of ALL.filter((w) => !FM.includes(w))) expect((await api('POST', '/api/admin/sample/remove', { cookie: cookies[who] })).status, who).toBe(403);
   });
-  it('users screen: managers and system admin; backups: system admin only', async () => {
+  it('users screen: managers and system admin; backups: nobody in this matrix (super user only); audit log: system admin', async () => {
     await matrix('GET', '/api/users', undefined, FM);
-    await matrix('GET', '/api/admin/backups', undefined, ['system_admin']);
+    await matrix('GET', '/api/admin/backups', undefined, []);
     await matrix('GET', '/api/admin/audit', undefined, ['system_admin']);
+    await matrix('PUT', '/api/roles/crew/permissions', { overrides: {} }, ['system_admin']);
+    await matrix('POST', '/api/roles/crew/reset', undefined, ['system_admin']);
   });
   it('everyone logged in can sync (the dispatcher gets a reduced copy)', () => matrix('GET', '/api/sync', undefined, ALL));
 });

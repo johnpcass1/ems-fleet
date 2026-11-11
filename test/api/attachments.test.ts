@@ -12,6 +12,8 @@ function form(bytes: Uint8Array, name: string, type: string, entityType = 'issue
   f.set('file', new File([bytes], name, { type }));
   return f;
 }
+let adminC = '';
+const adminCookie = async () => adminC || (adminC = (await as('system_admin', { email: 'att-admin@gema.test' })).cookie);
 let fm: string, crew: string, sup: string, viewer: string, dispatcher: string;
 beforeEach(async () => {
   await seedDemo();
@@ -231,12 +233,12 @@ describe('uploads switch (Features, super user only)', () => {
   it('with the switch on, only people with the upload permission can upload; the permission can be granted and revoked', async () => {
     expect((await up(crew, form(pdf(), 'a.pdf', 'application/pdf'))).status).toBe(200);
     const target = await row("SELECT id FROM users WHERE role = 'crew' LIMIT 1");
-    expect((await api('POST', `/api/users/${target.id}/permissions`, { cookie: fm, body: { overrides: { upload: false } } })).status).toBe(200);
+    expect((await api('POST', `/api/users/${target.id}/permissions`, { cookie: await adminCookie(), body: { overrides: { upload: false } } })).status).toBe(200);
     const r = await up(crew, form(pdf(), 'b.pdf', 'application/pdf'));
     expect(r.status).toBe(403);
     expect(r.json.code).toBe('forbidden');
     const vTarget = await row("SELECT id FROM users WHERE role = 'viewer' LIMIT 1");
-    expect((await api('POST', `/api/users/${vTarget.id}/permissions`, { cookie: fm, body: { overrides: { upload: true, report: true } } })).status).toBe(200);
+    expect((await api('POST', `/api/users/${vTarget.id}/permissions`, { cookie: await adminCookie(), body: { overrides: { upload: true, report: true } } })).status).toBe(200);
     expect((await up(viewer, form(pdf(), 'c.pdf', 'application/pdf'))).status).toBe(200);
   });
   it('existing files can still be downloaded and deleted while uploads are off', async () => {

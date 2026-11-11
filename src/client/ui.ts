@@ -16,6 +16,7 @@ import { render } from './shell';
 import * as A from './actions';
 import { setVehicleStatus, recordReading, acceptReading, submitIssue, dismissIssue, createWorkOrder, addLine, removeLine, patchWo, woAction, moveUnits, removeSample, saveVehicle, savePart, receivePart, saveMech, saveBase, saveProgram, saveSettings, saveFeatures } from './actions';
 import { userForms, userActs, syncPermsForm } from './users-ui';
+import { roleActs, roleCellChanged, rolePick } from './roles-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
@@ -355,6 +356,8 @@ document.addEventListener('keydown',(e:any)=>{
 });
 document.addEventListener('change',(e:any)=>{
   const el=e.target;if(el&&el.dataset&&el.dataset.perm!==undefined){syncPermsForm();return;}
+  if(el&&el.dataset&&el.dataset.rp!==undefined){roleCellChanged(el);return;}
+  if(el&&el.dataset&&el.dataset.rolepick!==undefined){rolePick(el.value);return;}
   if(!el||el.type!=='file')return;
   const files=[...(el.files||[])];
   if(el.id==='ri-photos'||el.id==='ri-pdf'){el.value='';if(uploadsOn())addPending(files);return;}
@@ -374,4 +377,5 @@ window.addEventListener('hashchange',()=>{
 
 Object.assign(FORMS,userForms);
 Object.assign(acts,userActs);
+Object.assign(acts,roleActs);
 Object.assign(acts,layoutActs);

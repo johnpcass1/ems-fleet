@@ -1,4 +1,4 @@
-import type { Role } from './constants';
+import { ROLE_LIST, type Role } from './constants';
 
 /**
  * Permission matrix. Same keys as the prototype's PERM table.
@@ -25,48 +25,77 @@ export const PERM: Record<string, Role[]> = {
   mechanics: FM_SUP,
   setup: FM,
   users: FM,
-  backups: ['system_admin'],
+  /** Super user only: no role has it by default and it can never be granted to anyone (see NEVER_GRANTABLE). */
+  backups: [],
   /** Photos and PDFs. Also needs the site-wide Features switch (super user only) to be on. */
   upload: [...FM_SUP, 'mechanic', 'crew'],
   /** The Reports screen (a screen setting: the figures come from data the person can already read). */
   viewReports: ['system_admin', 'fleet_manager', 'base_supervisor', 'mechanic', 'crew', 'viewer'],
 };
 export const PERM_KEYS = Object.keys(PERM);
-/** Keys that only the super user can grant to someone. */
-export const SUPER_ONLY_KEYS = ['users', 'setup', 'backups'];
+/** Keys that only the super user can grant, to a role or to a person. */
+export const SUPER_ONLY_KEYS = ['users', 'setup'];
+/** Keys only the super user ever has. They cannot be granted to a role or a person by anyone, and are not in either permission editor. */
+export const NEVER_GRANTABLE = ['backups'];
+/** Keys that appear in the permission editors (everything except NEVER_GRANTABLE). */
+export const EDITABLE_KEYS = PERM_KEYS.filter((k) => !NEVER_GRANTABLE.includes(k));
 /** What a role may do with no per-person changes. */
 export const hasPerm = (role: string, key: string) => (PERM[key] || []).includes(role as Role);
 
-/** Groups and labels for the Permissions drawer. Every key in PERM appears exactly once. */
+/** Groups and labels for the Permissions drawer and the Roles & permissions screen. Every editable key (all but NEVER_GRANTABLE) appears exactly once. */
 export const PERM_GROUPS: { title: string; items: [string, string][] }[] = [
   { title: 'Units', items: [['move', 'Move units between bases'], ['status', 'Change unit status'], ['reading', 'Log engine hours'], ['confirmReading', 'Confirm flagged engine-hour readings'], ['editVehicle', 'Add and edit vehicles']] },
   { title: 'Problems', items: [['report', 'Report problems'], ['issues', 'Manage problems (create work orders, dismiss)'], ['upload', 'Upload photos and PDFs'], ['delAttach', 'Remove photos and PDFs']] },
   { title: 'Work orders', items: [['createWO', 'Create work orders'], ['workWO', 'Work on work orders'], ['approve', 'Approve costly work orders'], ['closeWO', 'Close work orders'], ['cancelWO', 'Cancel work orders']] },
   { title: 'Parts and mechanics', items: [['parts', 'Manage parts and stock'], ['mechanics', 'Manage the mechanics list']] },
-  { title: 'Admin', items: [['setup', 'Change setup (bases, PM programs, settings)'], ['users', 'Manage people'], ['backups', 'Backups'], ['viewReports', 'View reports']] },
+  { title: 'Admin', items: [['setup', 'Change setup (bases, PM programs, settings)'], ['users', 'Manage people'], ['viewReports', 'View reports']] },
 ];
 
+/** Role-level changes from the built-in defaults: role -> key -> true/false. Stored in the settings record under `rolePerms`. */
+export type RolePerms = Record<string, Record<string, boolean>>;
+
+type PermActor = { role: string; isSuper?: boolean; permOverrides?: Record<string, boolean>; roleOverrides?: Record<string, boolean>; perms?: Record<string, boolean> };
+/** What a role can do: its change from the built-in default if there is one, else the built-in default. Never true for NEVER_GRANTABLE. */
+export function roleHas(role: string, key: string, roleOverrides?: Record<string, boolean>): boolean {
+  if (NEVER_GRANTABLE.includes(key)) return false;
+  const o = roleOverrides?.[key];
+  return typeof o === 'boolean' ? o : hasPerm(role, key);
+}
 /**
- * Effective permission = super user: yes; else the person's own override if there is one; else the role's default.
+ * Effective permission = super user: yes; else the person's own override; else the role's change (rolePerms, passed as `roleOverrides`);
+ * else the built-in role default. NEVER_GRANTABLE keys (backups) are the super user's alone.
  * `perms` (the finished map, sent to the browser) wins when present so both sides decide the same way.
  */
-export function can(actor: { role: string; isSuper?: boolean; permOverrides?: Record<string, boolean>; perms?: Record<string, boolean> }, key: string): boolean {
+export function can(actor: PermActor, key: string): boolean {
   if (actor.perms) return actor.perms[key] === true;
+  if (NEVER_GRANTABLE.includes(key)) return !!actor.isSuper;
   if (actor.isSuper) return true;
   const o = actor.permOverrides?.[key];
   if (typeof o === 'boolean') return o;
-  return hasPerm(actor.role, key);
+  return roleHas(actor.role, key, actor.roleOverrides);
 }
-export function effectivePerms(actor: { role: string; isSuper?: boolean; permOverrides?: Record<string, boolean> }): Record<string, boolean> {
+export function effectivePerms(actor: Omit<PermActor, 'perms'>): Record<string, boolean> {
   const out: Record<string, boolean> = {};
-  for (const k of PERM_KEYS) out[k] = can({ role: actor.role, isSuper: actor.isSuper, permOverrides: actor.permOverrides }, k);
+  for (const k of PERM_KEYS) out[k] = can({ role: actor.role, isSuper: actor.isSuper, permOverrides: actor.permOverrides, roleOverrides: actor.roleOverrides }, k);
   return out;
 }
-/** Keep only keys we know with true/false values. */
+/** Keep only keys we know with true/false values. Never keeps NEVER_GRANTABLE keys, so a tampered record cannot grant them. */
 export function cleanOverrides(o: unknown): Record<string, boolean> {
   const out: Record<string, boolean> = {};
-  if (o && typeof o === 'object') for (const [k, v] of Object.entries(o as any)) if (PERM_KEYS.includes(k) && typeof v === 'boolean') out[k] = v;
+  if (o && typeof o === 'object') for (const [k, v] of Object.entries(o as any)) if (EDITABLE_KEYS.includes(k) && typeof v === 'boolean') out[k] = v;
   return out;
+}
+/** Clean the stored `rolePerms`: known roles and keys only, empty roles dropped. */
+export function cleanRolePerms(o: unknown): RolePerms {
+  const out: RolePerms = {};
+  if (o && typeof o === 'object') for (const r of ROLE_LIST) { const c = cleanOverrides((o as any)[r]); if (Object.keys(c).length) out[r] = c; }
+  return out;
+}
+/** Where a person's current value for `key` comes from: their own change, a change to their role, or the built-in default. */
+export function permSource(role: string, key: string, permOverrides?: Record<string, boolean>, roleOverrides?: Record<string, boolean>): 'personal' | 'role' | 'default' {
+  if (typeof permOverrides?.[key] === 'boolean') return 'personal';
+  if (typeof roleOverrides?.[key] === 'boolean' && roleOverrides[key] !== hasPerm(role, key)) return 'role';
+  return 'default';
 }
 
 /** Roles from most to least senior. Nobody manages their own level or above. */
@@ -76,6 +105,11 @@ export function manageableRoles(actor: { role: string; isSuper?: boolean }): Rol
   if (actor.isSuper) return [...RANK];
   const i = RANK.indexOf(actor.role as Role);
   return i < 0 ? [] : RANK.slice(i + 1);
+}
+/** Roles whose default permissions this actor may edit on the Roles & permissions screen: the super user all; a system administrator fleet managers and below; nobody else. */
+export function editableRoles(actor: { role: string; isSuper?: boolean }): Role[] {
+  if (actor.isSuper) return [...RANK];
+  return actor.role === 'system_admin' ? manageableRoles(actor) : [];
 }
 /** May this actor edit the role and permissions of `target`? Never themselves, never a super user unless they are one. */
 export function canManageUser(actor: { id: string; role: string; isSuper?: boolean }, target: { id: string; role: string; isSuper?: boolean }): boolean {
@@ -98,6 +132,8 @@ export interface Actor {
   isSuper?: boolean;
   /** This person's own changes to what their role allows (key -> true/false). */
   permOverrides?: Record<string, boolean>;
+  /** The changes made to this person's role as a whole (settings `rolePerms[role]`). */
+  roleOverrides?: Record<string, boolean>;
   /** Finished effective permissions (sent to the browser). */
   perms?: Record<string, boolean>;
 }

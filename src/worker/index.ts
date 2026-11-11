@@ -4,18 +4,18 @@ import type { AppEnv, Env } from './env';
 import { HttpError, bad, forbidden, nowISO, parse, zId } from './http';
 import { Tx, SEQ, all, first } from './db';
 import {
-  COOKIE, actorFrom, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, lockedUntil, passwordProblem,
+  COOKIE, actorFrom, loadRolePerms, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, lockedUntil, passwordProblem,
   recordAttempt, requireAuth, verifyPassword,
 } from './auth';
 import { syncSince } from './sync';
 import * as rules from './rules';
 import * as users from './users';
+import * as roles from './roles';
 import { forgotPassword, publicMe, setPasswordFromLink, tokenInfo } from './accounts';
 import { emailEnabled, lastSinkMail, sinkActive } from './mail';
 import { deleteAttachment, downloadAttachment, uploadAttachment } from './files';
 import { backupStep, listBackups } from './backup';
 import { notifyIssueReported } from './notify';
-import { can } from '../shared/perm';
 import { getCookie } from 'hono/cookie';
 
 const app = new Hono<AppEnv>();
@@ -82,7 +82,7 @@ app.post('/api/auth/login', async (c) => {
   stmts.push(c.env.DB.prepare('INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(now, u.id, u.email, 'auth.login', 'user', u.id, now, now));
   await c.env.DB.batch(stmts);
   await createSession(c, u.id);
-  return c.json({ user: publicMe({ ...actorFrom(c.env, u), mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
+  return c.json({ user: publicMe({ ...actorFrom(c.env, u, await loadRolePerms(c.env.DB)), mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
 });
 
 /* ---------- email links: choose a password, forgot password (no login needed) ---------- */
@@ -184,6 +184,8 @@ api.put('/bases/:id', async (c) => c.json(await rules.saveBase(c.env, c.var.user
 api.post('/pm-programs', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, null, await body(c))));
 api.put('/pm-programs/:id', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, c.req.param('id'), await body(c))));
 api.put('/features', async (c) => c.json(await rules.saveFeatures(c.env, c.var.user, await body(c))));
+api.put('/roles/:role/permissions', async (c) => c.json(await roles.saveRolePermissions(c.env, c.var.user, c.req.param('role'), await body(c))));
+api.post('/roles/:role/reset', async (c) => c.json(await roles.resetRolePermissions(c.env, c.var.user, c.req.param('role'))));
 api.put('/settings', async (c) => c.json(await rules.saveSettings(c.env, c.var.user, await body(c))));
 api.post('/admin/sample/remove', async (c) => c.json(await rules.removeSample(c.env, c.var.user)));
 
@@ -203,8 +205,8 @@ api.post('/users/:id/reset-link', async (c) => c.json(await users.sendResetLink(
 api.post('/users/:id/deactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), false)));
 api.post('/users/:id/reactivate', async (c) => c.json(await users.setActive(c.env, c.var.user, c.req.param('id'), true)));
 
-/* backups (system administrator only) */
-const needBackups = (c: any) => { if (!can(c.var.user, 'backups')) throw forbidden(); };
+/* backups (super user only) */
+const needBackups = (c: any) => { if (!c.var.user.isSuper) throw forbidden('Only the super user can use backups.'); };
 api.get('/admin/backups', async (c) => { needBackups(c); return c.json({ backups: await listBackups(c.env) }); });
 api.post('/admin/backups/step', async (c) => {
   needBackups(c);
@@ -226,7 +228,7 @@ api.get('/admin/backups/:date', async (c) => {
   return new Response(o.body, { headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="gema-fleet-${date}.json.gz"`, 'Content-Length': String(o.size), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 });
 api.get('/admin/audit', async (c) => {
-  needBackups(c);
+  if (!c.var.user.isSuper && c.var.user.role !== 'system_admin') throw forbidden();
   const lim = Math.min(500, Math.max(1, Number(c.req.query('limit') || 100)));
   const rows = await all(c.env.DB, 'SELECT id, at, user_email, action, entity_type, entity_id, before_json, after_json FROM audit_log ORDER BY id DESC LIMIT ?', lim);
   return c.json({ rows });

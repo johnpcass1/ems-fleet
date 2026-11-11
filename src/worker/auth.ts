@@ -2,7 +2,7 @@ import type { Context, Next } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { AppEnv, Env } from './env';
 import { isSuperuserEmail } from './env';
-import { cleanOverrides, effectivePerms } from '../shared/perm';
+import { cleanOverrides, cleanRolePerms, effectivePerms, type RolePerms } from '../shared/perm';
 import { all, first } from './db';
 import { HttpError, nowISO } from './http';
 import type { Role } from '../shared/constants';
@@ -117,7 +117,7 @@ export async function requireAuth(c: Context<AppEnv>, next: Next) {
   let baseIds: string[] = [];
   try { baseIds = JSON.parse(row.base_ids || '[]'); } catch { /* ignore */ }
   // Permissions are read from the users table on every request, so a change by an administrator applies at once.
-  c.set('user', { ...actorFrom(c.env, { ...row, base_ids: JSON.stringify(baseIds) }), mustChangePassword: !!row.must_change_password, sessionId: id });
+  c.set('user', { ...actorFrom(c.env, { ...row, base_ids: JSON.stringify(baseIds) }, await loadRolePerms(c.env.DB)), mustChangePassword: !!row.must_change_password, sessionId: id });
   await next();
 }
 
@@ -140,15 +140,20 @@ export async function recordAttempt(db: D1Database, email: string, ok: boolean) 
   else await db.prepare('INSERT INTO login_attempts (email, at_ms, ok, created_at, updated_at) VALUES (?,?,0,?,?)').bind(email, Date.now(), now, now).run();
 }
 
+/** The role-level permission changes from the settings record (`rolePerms`), cleaned. Read on every request so a change applies at once. */
+export async function loadRolePerms(db: D1Database): Promise<RolePerms> {
+  const r = await first<any>(db, "SELECT json_extract(data, '$.rolePerms') AS rp FROM settings WHERE id = 'main'");
+  try { return r?.rp ? cleanRolePerms(JSON.parse(r.rp)) : {}; } catch { return {}; }
+}
 /** Build the acting person from a users row: role, bases, super user flag, own permission changes and the finished permission map. */
-export function actorFrom(env: Pick<Env, 'SUPERUSER_EMAILS'>, row: any) {
+export function actorFrom(env: Pick<Env, 'SUPERUSER_EMAILS'>, row: any, rolePerms: RolePerms = {}) {
   let baseIds: string[] = [];
   try { const v = JSON.parse(row.base_ids || '[]'); if (Array.isArray(v)) baseIds = v; } catch { /* ignore */ }
   let raw: unknown = {};
   try { raw = JSON.parse(row.perm_overrides || '{}'); } catch { /* ignore */ }
-  const base = { role: row.role as Role, isSuper: isSuperuserEmail(env, row.email), permOverrides: cleanOverrides(raw) };
+  const base = { role: row.role as Role, isSuper: isSuperuserEmail(env, row.email), permOverrides: cleanOverrides(raw), roleOverrides: rolePerms[row.role] ?? {} };
   return {
     id: row.id as string, email: row.email as string, name: row.name as string, role: base.role, baseIds, mechanicId: (row.mechanic_id ?? null) as string | null,
-    isSuper: base.isSuper, permOverrides: base.permOverrides, perms: effectivePerms(base),
+    isSuper: base.isSuper, permOverrides: base.permOverrides, roleOverrides: base.roleOverrides, perms: effectivePerms(base),
   };
 }

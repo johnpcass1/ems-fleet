@@ -37,9 +37,23 @@
 
 ## Permissions, the super user and features
 
-- Every permission is decided on the server from the person's row on each request: the super user (from `SUPERUSER_EMAILS`, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`) wins over the role default. The browser receives the finished list only to hide buttons.
-- Hierarchy, enforced on the server for roles, permissions, passwords, reset links, deactivation and creating accounts: the super user can manage anyone except themselves; a system administrator manages fleet managers and below; a fleet manager manages base supervisors and below; nobody manages their own permissions or role. A super user's account can be changed only by a super user. An editor can only switch on a permission they hold themselves, and only the super user can grant Manage people, Change setup or Backups. Every permission change is audit-logged with before and after.
-- Site-wide **features** (currently Photo and PDF uploads) are changed only through `PUT /api/features`, which answers 403 to everyone but the super user. The ordinary settings save ignores `features`, so a crafted request from a fleet manager or system administrator cannot change it.
+- Every permission is decided on the server from the person's row and the settings record on each request, in this order: the super user (from `SUPERUSER_EMAILS`, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`); otherwise the role's change (`rolePerms` in the settings record); otherwise the built-in role default (`src/shared/perm.ts`). The browser receives the finished list only to hide buttons.
+- **The three admin levels**
+
+  | | Fleet manager | System administrator | Super user |
+  | --- | --- | --- | --- |
+  | Create accounts / set roles | Base supervisor and below | Fleet manager and below | Anyone (only they create a system administrator) |
+  | Passwords, reset links, deactivation | Base supervisor and below | Fleet manager and below | Anyone except themselves |
+  | Per-person permissions (`POST /api/users/:id/permissions`) | 403 | Fleet manager and below | Anyone except themselves |
+  | Role permissions (`PUT /api/roles/:role/permissions`, `POST /api/roles/:role/reset`) | 403 | All roles except system administrator | Every role |
+  | Grant Manage people / Change setup | No | No | Yes |
+  | Backups (list, download, run) | 403 | 403 | Yes |
+  | Features (`PUT /api/features`) | 403 | 403 | Yes |
+  | Read the audit log | No | Yes | Yes |
+
+- Rules for both permission editors, enforced on the server: nobody edits their own permissions or role; an editor can only switch on a permission they hold themselves; only the super user can grant Manage people or Change setup; **Backups can never be granted** to a role or a person (the request is rejected with 400, the key is not in either editor, and any stored value for it is ignored when permissions are computed). Backups (the panel and the list, download and run endpoints) are decided by the super-user check alone. The nightly backup is a scheduled job and does not depend on anyone's permissions. A super user's account can be changed only by a super user, and nothing stored in a role or person record can reduce the super user's access. Every role and person permission change is audit-logged with before and after (`role.permissions`, `role.reset`, `user.permissions`).
+- `rolePerms` is part of the settings record that is synced to browsers (it holds no secrets; the dispatcher's reduced feed omits it). Like `features`, it is written only through its own endpoints; the ordinary settings save ignores it.
+- Site-wide **features** (currently Photo and PDF uploads) are changed only through `PUT /api/features`, which answers 403 to everyone but the super user. The ordinary settings save ignores `features` (and `rolePerms`), so a crafted request from a fleet manager or system administrator cannot change it.
 - Anyone who can edit the code or Cloudflare variables can change who is the super user; protect the repository and the Cloudflare account accordingly.
 
 ## Files
