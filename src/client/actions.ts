@@ -47,6 +47,7 @@ export const resendInvite = (id: string) => api<EmailResult>('POST', `/users/${i
 export const sendResetLink = (id: string) => api<EmailResult>('POST', `/users/${id}/reset-link`);
 export const saveUserPermissions = (id: string, overrides: Record<string, boolean>) => api<{ ok: boolean; overrides: Record<string, boolean> }>('POST', `/users/${id}/permissions`, { overrides });
 export const saveRolePermissions = (role: string, overrides: Record<string, boolean>) => after(api('PUT', `/roles/${role}/permissions`, { overrides }));
+export const saveAllRolePermissions = (roles: Record<string, Record<string, boolean>>) => after(api('PUT', '/roles/permissions', { roles }));
 export const resetRolePermissions = (role: string) => after(api('POST', `/roles/${role}/reset`));
 export const setUserActive = (id: string, active: boolean) => api('POST', `/users/${id}/${active ? 'reactivate' : 'deactivate'}`);
 export const listBackups = () => api<{ backups: any[] }>('GET', '/admin/backups');
