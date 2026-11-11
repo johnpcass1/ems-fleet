@@ -6,7 +6,7 @@
  */
 import { ROLES, ROLE_LIST } from '../shared/constants';
 import { PERM_GROUPS, SUPER_ONLY_KEYS, can as canActor, editableRoles, hasPerm, roleHas } from '../shared/perm';
-import { D, S, scheduleRender } from './state';
+import { agencySettings, S, scheduleRender } from './state';
 import { esc, toast, run } from './util';
 import { VIEWS } from './registry';
 import { pageHead, actBtn } from './bits';
@@ -19,7 +19,7 @@ type Draft = Record<string, Record<string, boolean>>;
 const draft: Draft = {};
 let pick = '';
 
-const stored = (role: string): Record<string, boolean> => ((D.settings.main || {}).rolePerms || {})[role] || {};
+const stored = (role: string): Record<string, boolean> => (agencySettings().rolePerms || {})[role] || {};
 const savedVal = (role: string, key: string) => roleHas(role, key, stored(role));
 const val = (role: string, key: string) => (draft[role] && key in draft[role] ? draft[role][key] : savedVal(role, key));
 const isDirty = (role: string) => !!draft[role] && Object.keys(draft[role]).length > 0;

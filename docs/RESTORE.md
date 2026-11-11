@@ -2,10 +2,12 @@
 
 ## What is backed up
 
-- **Nightly backup** to the R2 bucket as `backups/YYYY-MM-DD.json.gz`: every table (including users with their password hashes, and the audit log), as a gzip-compressed JSON file. The last 30 are kept. It starts around 03:00 Guyana time (07:00 UTC) and works in small steps, so it finishes within a few minutes.
+- **Nightly backup** to the R2 bucket as `backups/YYYY-MM-DD.json.gz`: **one file for the whole database, covering all agencies** (their records, people and password hashes together), and only the super user can see it. Every table (including users with their password hashes, and the audit log), as a gzip-compressed JSON file. The last 30 are kept. It starts around 03:00 Guyana time (07:00 UTC) and works in small steps, so it finishes within a few minutes.
 - File attachments are not copied into the backup file. They stay in R2 under `attachments/`.
 - Only the super user sees the list of backups, with downloads and a **Back up now** button, on the Users screen.
 - **D1 Time Travel** lets Cloudflare roll the database back to any minute in the last 7 days (free plan) or 30 days (paid). It is the quickest fix for "someone deleted something an hour ago".
+
+**Restoring affects every agency.** A restore (Time Travel or a backup file) puts the whole database back to that moment, so every agency loses whatever it entered after it, and an agency added after that moment disappears. Tell every agency before you restore. A backup made before agencies existed restores as the `GEMA` agency (`scripts/restore-from-backup.mjs` adds the agency record and renames the settings record for you). There is no way to restore one agency on its own from these files; to give a single agency its data back, restore to a scratch copy and copy that agency's rows (`WHERE agency_id = '...'`) across.
 
 ## Option 1: roll back with Time Travel (recent mistakes)
 

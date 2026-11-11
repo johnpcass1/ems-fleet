@@ -1,4 +1,4 @@
-# Deploying GEMA Fleet to Cloudflare
+# Deploying to Cloudflare
 
 This guide assumes no earlier Cloudflare experience. You do this once. After that, every change merged to the `main` branch deploys itself (GitHub Actions).
 
@@ -99,6 +99,11 @@ npm run create-admin -- --email you@example.org --name "Your Name" --remote --en
 ```
 
 ## Updating the database later
+
+**Release 0005 (`migrations/0005_agencies.sql`) adds agencies.** It adds one table and an `agency_id` column (default `GEMA`) to every agency-owned table, renames the settings record `main` to `GEMA`, and swaps some indexes for per-agency ones. Existing data becomes the `GEMA` agency and nothing is copied or rebuilt, so it is quick and safe on a database with data. Apply it **before or together with** the code (the GitHub workflow does: it migrates, then deploys). It cannot be undone by deploying the old code: the old code would not find the settings record (saved settings, role changes and the uploads switch would look reset) and knows nothing about agencies, so roll forward rather than back. Take a backup first (Users > Backups > Back up now) and, if you like, note the Time Travel time.
+
+It also adds a variable, **`SUPERUSER_AGENCY`** (in `wrangler.jsonc` at the top level and in `env.staging`; set to `GEMA`). A super user's email only counts on an account in this agency. If you leave it out it defaults to `GEMA`. After deploying, people sign in with Agency ID `GEMA`; tell them, since the login page now has an extra box. A browser tab that was open during the deploy shows "Wrong Agency ID, email or password" until it is reloaded.
+
 
 Release 0003 (`migrations/0003_user_permissions.sql`) adds one column to `users` for per-person permissions. The GitHub workflow applies it on deploy. If you deploy from Terminal, run `npm run db:migrate:remote` (and `npm run db:migrate:staging` for staging) before `npm run deploy`. Set the super user's address in `SUPERUSER_EMAILS` in `wrangler.jsonc` first (see [HANDOVER.md](HANDOVER.md)).
 

@@ -1,5 +1,5 @@
 /** Logged-out screens for email links: "Forgot password?" and the set-password page. Also the password-field helpers the Users screen shares. */
-import { S } from './state';
+import { S, lastAgency } from './state';
 import { $, esc } from './util';
 import { brandHtml } from './bits';
 
@@ -32,13 +32,14 @@ export function pwFieldsHtml(p: string) {
 /* ---------- forgot password ---------- */
 export function showForgot() {
   document.body.classList.add('loggedout');
-  $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb"><h1>Reset your password</h1><p class="muted small">Enter your email address and we will send you a link to choose a new password.</p>
+  $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb"><h1>Reset your password</h1><p class="muted small">Enter your Agency ID and email address and we will send you a link to choose a new password.</p>
     <form id="forgotForm" novalidate>
+      <label class="f"><span class="l">Agency ID</span><input id="fg-agency" type="text" placeholder="GEMA" value="${esc(lastAgency())}" autocomplete="organization" required autocapitalize="characters" spellcheck="false" maxlength="40"></label>
       <label class="f"><span class="l">Email</span><input id="fg-email" type="email" autocomplete="username" required autocapitalize="off" spellcheck="false"></label>
       <div id="fg-err" class="warnbox bad" role="alert" hidden></div>
       <button class="btn primary block" type="submit" id="fg-submit">Send reset link</button>
     </form><p class="small" style="margin:14px 0 0"><a href="/" data-act="to-login" id="fg-back">Back to log in</a></p></div></div></div>`;
-  $('#fg-email').focus();
+  $(lastAgency() ? '#fg-email' : '#fg-agency').focus();
 }
 export function showForgotDone(message: string) {
   $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb"><h1>Check your email</h1><div class="warnbox" role="status" id="fg-done">${esc(message)}</div>
@@ -47,7 +48,7 @@ export function showForgotDone(message: string) {
 }
 
 /* ---------- the page behind the emailed link ---------- */
-export interface LinkInfo { valid: boolean; reason?: 'expired' | 'used' | 'invalid'; purpose?: 'invite' | 'reset' | null; email?: string; name?: string }
+export interface LinkInfo { valid: boolean; reason?: 'expired' | 'used' | 'invalid'; purpose?: 'invite' | 'reset' | null; email?: string; name?: string; agencyId?: string; agencyName?: string }
 
 const frame = (inner: string) => { document.body.classList.add('loggedout'); $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb">${inner}</div></div></div>`; };
 
@@ -63,8 +64,10 @@ export function showLinkProblem(info: LinkInfo | null) {
 }
 export function showSetPassword(info: LinkInfo) {
   const reset = info.purpose === 'reset';
-  frame(`<h1>${reset ? 'Reset your password' : 'Welcome to GEMA Fleet'}</h1>
-    <p class="muted small" id="sp-hello">${reset ? `Hi ${esc(info.name)}, choose a new password.` : `Hi ${esc(info.name)}, choose a password for GEMA Fleet.`}</p>
+  const where = info.agencyName ? `${info.agencyName} Fleet` : 'the fleet system';
+  frame(`<h1>${reset ? 'Reset your password' : `Welcome to ${esc(where)}`}</h1>
+    <p class="muted small" id="sp-hello">${reset ? `Hi ${esc(info.name)}, choose a new password.` : `Hi ${esc(info.name)}, choose a password for ${esc(where)}.`}</p>
+    ${info.agencyId ? `<p class="small muted" id="sp-agency">Your Agency ID is <b>${esc(info.agencyId)}</b>. You need it, with your email, to log in.</p>` : ''}
     <form id="spForm" novalidate>
       <input type="email" value="${esc(info.email)}" autocomplete="username" hidden readonly tabindex="-1" aria-hidden="true">
       <label class="f"><span class="l">New password</span><input id="sp-new" type="password" autocomplete="new-password" required minlength="${MIN_PW}"><span class="hint">At least ${MIN_PW} characters. A few random words is a good choice.</span></label>

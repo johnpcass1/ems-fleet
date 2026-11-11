@@ -80,3 +80,8 @@ Cloudflare has its own Email Service that can send email from a Worker without a
 - Settings: secret `RESEND_API_KEY`, variable `MAIL_FROM`, variable `APP_URL`. Email is "on" only when both `RESEND_API_KEY` and `MAIL_FROM` are set (`emailEnabled()` in `src/worker/mail.ts`).
 - Links look like `APP_URL/set-password#t=<token>`. The secret is after the `#`, so browsers do not send it to the server or in the Referer header; the page reads it, removes it from the address bar, and posts it to `/api/auth/set-password`.
 - **Local testing without sending anything:** run the Worker with `MAIL_SINK=1`, `RESEND_API_KEY` and `MAIL_FROM` set to any dummy values and `APP_URL` set to a `localhost` address (for example `wrangler dev --var MAIL_SINK:1 --var RESEND_API_KEY:x --var 'MAIL_FROM:GEMA Fleet <no-reply@gema.test>' --var APP_URL:http://localhost:8787`). Messages are then saved to the file bucket instead of sent, and `GET /api/dev/last-mail?to=<address>` returns the latest one. The sink does nothing unless `APP_URL` is `localhost`, and `MAIL_SINK` is not in `wrangler.jsonc`, so it cannot be switched on by accident in production. `npm run e2e` uses it.
+
+## With several agencies
+
+One sender address serves every agency. The subject names the agency ("Set up your <agency name> Fleet account", "Reset your <agency name> Fleet password"), and the body gives the **Agency ID**, which people need to log in. A reset link only works for the agency it was issued in. **Forgot password?** asks for the Agency ID as well as the email, and always gives the same answer, whether or not the agency or the email exists.
+

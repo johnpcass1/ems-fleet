@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GEMA Fleet</title>
+<title>Fleet maintenance</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Fleet maintenance for the Guyana EMS ambulance program">
+<meta name="description" content="Fleet maintenance: vehicles, preventive maintenance, problems and work orders">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
@@ -12,7 +12,7 @@
 <div id="app">
   <div class="navscrim" id="navScrim" data-act="nav-close"></div>
   <aside class="sidebar" id="sidebar">
-    <div class="sbhead"><a class="brand" href="#board" aria-label="GEMA Fleet, Guyana EMS fleet"><i class="mark" aria-hidden="true"></i><span class="bt"><b>GEMA Fleet</b><small>Guyana EMS fleet</small></span></a></div>
+    <div class="sbhead"><a class="brand" href="#board" id="brandLink" aria-label="Fleet maintenance"><i class="mark" aria-hidden="true"></i><span class="bt"><b id="brandName">Fleet</b><small>Fleet maintenance</small></span></a></div>
     <nav id="nav" class="sbnav" aria-label="Main"></nav>
     <div class="sbfoot">
       <span id="sampleChip" class="badge samplechip" hidden>Sample data</span>
@@ -32,7 +32,7 @@
   <div id="drawerRoot"></div><div id="confirmRoot"></div>
   <div id="toasts" aria-live="polite"></div>
 </div>
-<noscript><p style="padding:16px">GEMA Fleet needs JavaScript. Please turn it on in your browser.</p></noscript>
+<noscript><p style="padding:16px">This site needs JavaScript. Please turn it on in your browser.</p></noscript>
 <script type="module" src="/src/client/main.ts"></script>
 </body>
 </html>

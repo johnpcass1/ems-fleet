@@ -18,6 +18,7 @@ import { setVehicleStatus, recordReading, acceptReading, submitIssue, dismissIss
 import { userForms, userActs, syncPermsForm } from './users-ui';
 import { roleActs, roleCellChanged, rolePick } from './roles-ui';
 import { activityActs } from './activity-ui';
+import { agencyForms, agencyActs } from './agencies-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
@@ -25,7 +26,7 @@ export function openVehicleForm(v?){
   const e=!!v;v=v||{status:'in_service',type:'Type II ambulance'};
   const progs=LST.pmPrograms.map(p=>[p.id,p.name]);
   showDrawer(e?`Edit ${v.unit}`:'Add vehicle',`<form data-form="vehicle" data-id="${e?esc(v.id):''}" id="vehForm" novalidate>
-    <div class="fgrid">${field('Unit name',inp('vf-unit',v.unit,'text','required placeholder="GEMA-21" maxlength="30"'))}${field('Plate',inp('vf-plate',v.plate,'text','maxlength="20"'))}</div>
+    <div class="fgrid">${field('Unit name',inp('vf-unit',v.unit,'text','required placeholder="AMB-21" maxlength="30"'))}${field('Plate',inp('vf-plate',v.plate,'text','maxlength="20"'))}</div>
     ${field('VIN',inp('vf-vin',v.vin,'text','maxlength="24"'))}
     <div class="fgrid">${field('Make',inp('vf-make',v.make,'text','required'))}${field('Model',inp('vf-model',v.model,'text','required'))}${field('Year',inp('vf-year',v.year,'number','min="1990" max="2100"'))}</div>
     <div class="fgrid">${field('Type',inp('vf-type',v.type,'text'))}${field('Base',selHtml('vf-base',baseOpts(false),v.baseId||'','required'))}</div>
@@ -380,4 +381,6 @@ Object.assign(FORMS,userForms);
 Object.assign(acts,userActs);
 Object.assign(acts,roleActs);
 Object.assign(acts,activityActs);
+Object.assign(FORMS,agencyForms);
+Object.assign(acts,agencyActs);
 Object.assign(acts,layoutActs);

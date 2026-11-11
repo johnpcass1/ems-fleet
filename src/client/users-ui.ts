@@ -1,7 +1,7 @@
 /** Users screen (fleet manager and system administrator) and the Backups panel (super user only). */
 import { ROLES, ROLE_LIST } from '../shared/constants';
 import { PERM_GROUPS, SUPER_ONLY_KEYS, canManageUser, can as canActor, manageableRoles, roleHas } from '../shared/perm';
-import { D, LST, S, can, basesSorted, featureUploads } from './state';
+import { D, LST, S, can, basesSorted, featureUploads, agencySettings } from './state';
 import { $, $$, esc, fmtDT, fmtDate, toast, field, inp, selHtml, val, run } from './util';
 import { VIEWS } from './registry';
 import { pageHead, actBtn } from './bits';
@@ -38,7 +38,7 @@ const roleChoices = (current?: string) => ROLE_LIST.filter((r) => (S.me ? manage
 const mayManage = (u: any) => !!S.me && canManageUser({ id: S.me.id, role: S.me.role, isSuper: !!S.me.isSuperuser }, { id: u.id, role: u.role, isSuper: !!u.isSuperuser });
 /** Per-person permissions: the super user and system administrators only (fleet managers can add people and set roles, not permissions). */
 const mayEditPerms = () => !!S.me && (!!S.me.isSuperuser || S.me.role === 'system_admin');
-const roleChanges = (role: string): Record<string, boolean> => ((D.settings.main || {}).rolePerms || {})[role] || {};
+const roleChanges = (role: string): Record<string, boolean> => (agencySettings().rolePerms || {})[role] || {};
 const scoped = (r: string) => r === 'base_supervisor' || r === 'crew';
 
 VIEWS.users = function () {
@@ -66,7 +66,7 @@ function backupsPanel() {
   loadBackups();
   const b = backupsCache;
   return `<div class="panel" id="backupsPanel"><div class="ph"><h2>Backups</h2><button class="btn sm" data-act="backup-now" id="backupNow">Back up now</button></div>
-  <div class="pn small muted">A full copy of all fleet records is saved every night (about 03:00 Guyana time) and the last 30 are kept. Download one to keep it somewhere safe. See docs/RESTORE.md for how to restore.</div>
+  <div class="pn small muted">A full copy of the whole database is saved every night (about 03:00 Guyana time) and the last 30 are kept. It covers every agency, not only the one on screen, which is why only the super user sees this panel. Download one to keep it somewhere safe. See docs/RESTORE.md for how to restore.</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Date</th><th class="n">Size</th><th></th></tr></thead><tbody>
   ${b === null ? '<tr><td colspan="3" class="muted">Loading...</td></tr>' : b.map((x) => `<tr><td>${esc(fmtDate(x.date))}</td><td class="n">${(x.size / 1024).toFixed(0)} KB</td><td><a class="btn sm" href="/api/admin/backups/${esc(x.date)}" download id="bk-${esc(x.date)}">${icon('download')}Download</a></td></tr>`).join('') || '<tr><td colspan="3" class="muted">No backups yet. The first one is made tonight, or press Back up now.</td></tr>'}
   </tbody></table></div></div>`;
