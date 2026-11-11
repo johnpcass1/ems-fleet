@@ -447,8 +447,22 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     if (await su.page.locator('#rp-system_admin-report').isDisabled()) throw new Error('super user cannot edit the system_admin column');
     await su.page.locator('#rp-crew-report').uncheck();
     await su.page.locator('#rchg-crew-report').waitFor({ timeout: 3000 }).catch(() => { throw new Error('no Changed from default marker'); });
+    // one Save for the whole page, at the top right; nothing is saved until it is pressed
+    if (await su.page.locator('[id^="rs-"]').count()) throw new Error('per-role Save buttons are still there');
+    await su.page.waitForSelector('#rolesSave:not([disabled])');
+    if (!/1 unsaved change/.test(await su.page.locator('#rolesDirty').innerText())) throw new Error('no unsaved count');
+    if (!(await su.page.locator('td.unsaved[data-role="crew"]').count())) throw new Error('the unsaved box is not highlighted');
+    if (!(await su.page.locator('#topact #rolesSave').isVisible())) throw new Error('Save changes is not in the top bar');
+    if (!/Save changes/.test(await su.page.locator('#rolesSave').innerText())) throw new Error('Save changes has no visible label');
+    if (await su.page.locator('#roleMatrix .rstate').count()) throw new Error('Yes/No words are still next to the boxes');
+    // Discard puts the boxes back without saving
+    await su.page.click('#rolesDiscard'); await su.page.waitForSelector('#cfT'); await su.page.click('#cfYes');
+    await su.page.waitForSelector('#rolesSave[disabled]');
+    if (!(await su.page.locator('#rp-crew-report').isChecked())) throw new Error('Discard did not put the box back');
+    await su.page.locator('#rp-crew-report').uncheck();
+    await su.page.waitForSelector('#rolesSave:not([disabled])');
     await shot(su.page, '17-roles-matrix'); await noOverflow(su.page);
-    await su.page.click('#rs-crew');
+    await su.page.click('#rolesSave');
     await su.page.waitForSelector('#cfT');
     if (!/This changes what \d+ crew members? can do/.test(await su.page.locator('#cfM').innerText())) throw new Error('confirmation does not name the people: ' + await su.page.locator('#cfM').innerText());
     await shot(su.page, '17b-roles-confirm');
@@ -471,8 +485,13 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     // reset the role to its built-in defaults
     await su.page.goto(BASE + '/#roles'); await su.page.waitForSelector('#roleMatrix');
     if (await su.page.locator('#rp-pick').isVisible()) await su.page.selectOption('#rp-pick', 'crew');
-    await su.page.click('#rr-crew'); await su.page.waitForSelector('#cfT'); await su.page.click('#cfYes');
-    await su.page.waitForFunction(() => /reset to default/i.test(document.querySelector('#toasts')?.innerText || ''));
+    // Reset to default only fills the boxes in; Save changes keeps them
+    await su.page.click('#rr-crew');
+    await su.page.waitForSelector('#rolesSave:not([disabled])');
+    if (!(await su.page.locator('#rp-crew-report').isChecked())) throw new Error('Reset to default did not fill in the default');
+    await su.page.click('#rolesSave'); await su.page.waitForSelector('#cfT'); await su.page.click('#cfYes');
+    await su.page.waitForFunction(() => /permissions saved/i.test(document.querySelector('#toasts')?.innerText || ''));
+    await su.page.waitForSelector('#rolesSave[disabled]');
     await crew.page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await crew.page.waitForSelector('#boardReport', { timeout: 15000 });
   }, tag);

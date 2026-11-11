@@ -135,6 +135,8 @@ body.loggedout .main{margin-left:0}
   .crumbs .grp{display:none}
   .topact .btn.primary{width:36px;padding:0}
   .topact .btn .lbl{display:none}
+  .topact .btn.primary.keeplbl{width:auto;padding:0 12px}
+  .topact .btn.keeplbl .lbl{display:inline}
   .vhead h1.pt{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
 @media (prefers-reduced-motion: no-preference){
@@ -531,13 +533,15 @@ table.rolemx th.rc .rname{display:block;white-space:normal;line-height:1.2}
 table.rolemx th.rc .rro{display:block;margin-top:2px;font:500 10.5px/1.2 var(--sans);text-transform:none;letter-spacing:0;color:var(--muted)}
 table.rolemx tr.grp th{height:28px;background:var(--surface-2);font:600 11.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;position:sticky;left:0}
 table.rolemx td.ro,table.rolemx th.rc:has(.rro){background:var(--surface-2);color:var(--muted)}
-.rcell{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.rcell{display:inline-flex;align-items:center;justify-content:center;padding:4px;cursor:pointer}
+.rcell input{width:18px;height:18px;margin:0}
 .rcell input:disabled{cursor:not-allowed}
-.rcell input:disabled + .rstate{color:var(--muted)}
-.rstate{font-size:12.5px;min-width:24px;text-align:left}
 .rchg{display:flex;width:max-content;margin:3px auto 0;font-size:11px;padding:0 5px}
 .rbtns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 table.rolemx tr.rfoot td,table.rolemx tr.rfoot th{padding-top:10px;padding-bottom:10px;vertical-align:top}
+table.rolemx td.rc.unsaved{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.rfhint{display:block;margin-top:2px;font-weight:400;text-transform:none;letter-spacing:0}
+.rdirty{align-self:center;white-space:nowrap}
 @media (max-width:719.98px){
   .rpick{display:block}
   table.rolemx{min-width:0}

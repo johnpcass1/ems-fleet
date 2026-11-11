@@ -167,3 +167,42 @@ describe('who can do what (three admin levels)', () => {
     expect(me).toMatchObject({ users: true, setup: true, backups: false });
   });
 });
+
+describe('saving several roles at once (the single Save changes button)', () => {
+  const putAll = (cookie: string, roles: any) => api('PUT', '/api/roles/permissions', { cookie, body: { roles } });
+  it('saves every listed role in one go, leaves the others alone, and writes one audit row per changed role', async () => {
+    await putRole(su, 'viewer', { move: true });
+    const before = (await row("SELECT COUNT(*) n FROM audit_log WHERE action IN ('role.permissions','role.reset')")).n;
+    const r = await putAll(su, { crew: { report: false }, mechanic: { status: true, report: true } });
+    expect(r.status).toBe(200);
+    expect(r.json.saved.sort()).toEqual(['crew', 'mechanic']);
+    expect((await stored()).rolePerms).toEqual({ crew: { report: false }, mechanic: { status: true }, viewer: { move: true } });
+    expect((await syncAll(crew)).me.perms.report).toBe(false);
+    expect((await syncAll(mech)).me.perms.status).toBe(true);
+    const log = await rows("SELECT action, entity_id FROM audit_log WHERE action IN ('role.permissions','role.reset') ORDER BY id DESC LIMIT 2");
+    expect((await row("SELECT COUNT(*) n FROM audit_log WHERE action IN ('role.permissions','role.reset')")).n).toBe(before + 2);
+    expect(log.map((x: any) => x.entity_id).sort()).toEqual(['crew', 'mechanic']);
+  });
+  it('an empty role means back to the built-in defaults, recorded as a reset', async () => {
+    await putRole(su, 'crew', { report: false });
+    expect((await putAll(su, { crew: {} })).status).toBe(200);
+    expect((await stored()).rolePerms ?? {}).toEqual({});
+    expect((await row("SELECT action FROM audit_log WHERE entity_id = 'crew' ORDER BY id DESC LIMIT 1")).action).toBe('role.reset');
+  });
+  it('is all or nothing: one role the editor may not change stops the whole save', async () => {
+    expect((await putAll(admin, { crew: { report: false }, system_admin: { report: false } })).status).toBe(403);
+    expect((await putAll(admin, { crew: { report: false }, viewer: { users: true } })).status).toBe(403);
+    expect((await putAll(su, { crew: { report: false }, viewer: { backups: true } })).status).toBe(400);
+    expect((await putAll(su, { crew: { report: false }, nobody: {} })).status).toBe(404);
+    expect((await stored()).rolePerms ?? {}).toEqual({});
+    expect((await syncAll(crew)).me.perms.report).toBe(true);
+  });
+  it('fleet managers and below cannot use it; an empty save is refused; an unchanged role writes nothing', async () => {
+    expect((await putAll(fm, { crew: { report: false } })).status).toBe(403);
+    expect((await putAll(crew, { crew: { report: false } })).status).toBe(403);
+    expect((await putAll(su, {})).status).toBe(400);
+    const n = (await row('SELECT COUNT(*) n FROM audit_log')).n;
+    expect((await putAll(su, { crew: {} })).json.saved).toEqual([]);
+    expect((await row('SELECT COUNT(*) n FROM audit_log')).n).toBe(n);
+  });
+});

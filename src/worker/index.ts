@@ -193,6 +193,7 @@ api.put('/bases/:id', async (c) => c.json(await rules.saveBase(c.env, c.var.user
 api.post('/pm-programs', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, null, await body(c))));
 api.put('/pm-programs/:id', async (c) => c.json(await rules.saveProgram(c.env, c.var.user, c.req.param('id'), await body(c))));
 api.put('/features', async (c) => c.json(await rules.saveFeatures(c.env, c.var.user, await body(c))));
+api.put('/roles/permissions', async (c) => c.json(await roles.saveAllRolePermissions(c.env, c.var.user, await body(c))));
 api.put('/roles/:role/permissions', async (c) => c.json(await roles.saveRolePermissions(c.env, c.var.user, c.req.param('role'), await body(c))));
 api.post('/roles/:role/reset', async (c) => c.json(await roles.resetRolePermissions(c.env, c.var.user, c.req.param('role'))));
 api.put('/settings', async (c) => c.json(await rules.saveSettings(c.env, c.var.user, await body(c))));
