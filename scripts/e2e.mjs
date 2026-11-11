@@ -759,9 +759,12 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     const pick = opts.find((o) => !USED_BC_UNITS.has(o.t.split(' ')[0]));
     if (!pick) throw new Error('no unchecked unit left for this run; offered ' + opts.map((o) => o.t).join(' / '));
     unitName = pick.t.split(' ')[0]; USED_BC_UNITS.add(unitName);
-    const val = pick.v;
+    const val = pick.v; state.vid = val;
     await p.selectOption('#bc-unit', val);
     await p.waitForSelector('#bcList');
+    // nothing is reported short on this unit yet
+    await p.waitForSelector('#bcKnownNone');
+    if (!/Known shortages on this unit/.test(await p.locator('#bcKnown').innerText())) throw new Error('no Known shortages panel');
     if (!/Standard ambulance/.test(await p.locator('#bcList').innerText())) throw new Error('list not shown');
     if ((await p.inputValue('#bc-base')) === '') throw new Error('station not preselected');
     if ((await p.inputValue('#bc-emt1')) === '') throw new Error('EMT 1 is not the signed-in person');
@@ -808,18 +811,30 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await shot(p, '20-bus-check-submit'); await noOverflow(p);
     await p.click('#bcSubmit'); await p.waitForSelector('#cfYes');
     const conf = await p.locator('#confirmRoot').innerText();
-    for (const t of ['3 issues', state.item + ' short (need', state.psi + ' 800', 'Problem reported: Cracked mirror', 'Send with 3 issues']) if (!conf.includes(t)) throw new Error('confirmation lacks "' + t + '": ' + conf);
+    for (const t of ['3 issues', 'Equipment shortage: ' + state.item + ' short (need', 'Equipment shortage: ' + state.psi + ' 800', 'Vehicle problem: Cracked mirror', 'Send with 3 issues', 'recorded for restocking', 'sent to maintenance as a vehicle problem']) if (!conf.includes(t)) throw new Error('confirmation lacks "' + t + '": ' + conf);
+    if (/as a problem/.test(conf)) throw new Error('old wording in the confirmation: ' + conf);
     await shot(p, '20-bus-check-confirm');
     await p.click('#cfYes'); await p.waitForSelector('#bcDone');
     const done = await p.locator('#bcDone').innerText();
-    if (!/2 shortages found/.test(done)) throw new Error('done text: ' + done);
+    for (const t of ['2 shortages found', '2 new shortages recorded for restocking', '1 vehicle problem you reported sent to maintenance']) if (!done.includes(t)) throw new Error('done text lacks "' + t + '": ' + done);
     // the unsent draft is gone
     const left = await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gema-buscheck-draft')));
     if (left.length) throw new Error('draft left behind: ' + left.join());
     await noOverflow(p);
   }, tag);
 
-  await check(fm.page, 'bus checks: fleet manager sees the check in Today, Shortages and History, and the shortage as a problem', async () => {
+  await check(crew.page, 'bus checks: starting another check on the same unit, the crew sees what is already reported short', async () => {
+    const p = crew.page;
+    await p.click('#bcAgain'); await p.waitForSelector('#bc-unit');
+    await p.selectOption('#bc-unit', state.vid); await p.waitForSelector('#bcList');
+    await p.waitForSelector('#bcKnownList');
+    const txt = await p.locator('#bcKnown').innerText();
+    for (const t of ['Known shortages on this unit', state.item, state.psi]) if (!txt.includes(t)) throw new Error('known shortages panel lacks "' + t + '": ' + txt);
+    await p.locator('#bcKnown').scrollIntoViewIfNeeded();
+    await shot(p, '20-bus-check-known-shortages'); await noOverflow(p);
+  }, tag);
+
+  await check(fm.page, 'bus checks: fleet manager sees the check in Today, Shortage report and History; the shortage is NOT a problem but the reported problem is', async () => {
     const p = fm.page;
     await p.goto(BASE + '/#buschecks'); await p.waitForSelector('#bct-today');
     await p.click('#bct-today');
@@ -836,6 +851,8 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.locator('#drawerRoot #dBody').evaluate((e) => { e.scrollTop = 0; });
     await shot(p, '20-bus-check-view'); await noOverflow(p);
     await p.keyboard.press('Escape'); await p.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
+    const tabNames = await p.locator('[role="tab"][id^="bct-"]').allInnerTexts();
+    if (tabNames.join('|') !== 'Today|Equipment|Shortage report|History|Requirements') throw new Error('tabs are ' + tabNames.join('|'));
     await p.click('#bct-shortages'); await p.waitForSelector('#bcItems');
     if (!(await p.locator('#bcItems', { hasText: state.item }).count())) throw new Error('item not in the shortages report');
     await shot(p, '20-bus-checks-shortages'); await noOverflow(p);
@@ -848,19 +865,68 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.waitForSelector('#bcvNote'); await p.keyboard.press('Escape'); await p.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
     // the problems arrive with the next background sync (about every 20 s); a reload fetches them now
     await p.goto(BASE + '/#issues'); await p.reload(); await p.waitForSelector('#view h1');
-    await p.waitForFunction((t) => document.querySelector('#view').innerText.includes(t), 'Bus check: ' + state.item + ' short');
+    await p.waitForFunction((t) => document.querySelector('#view').innerText.includes(t), 'Cracked mirror (' + tag + ')');
     const view = await p.locator('#view').innerText();
-    if (!view.includes('Cracked mirror (' + tag + ')')) throw new Error('reported problem not in Problems');
-    if (!(await p.locator('#view .badge', { hasText: 'Bus check' }).count())) throw new Error('no Bus check badge');
+    if (view.includes(state.item) || view.includes(state.psi) || /Bus check: /.test(view)) throw new Error('an equipment shortage is on the Problems page');
+    if (!(await p.locator('#view .badge', { hasText: 'Bus check' }).count())) throw new Error('no Bus check badge on the reported problem');
+    const cnt = await p.evaluate(async () => (await (await fetch('/api/sync?since=0', { credentials: 'same-origin' })).json()).data.issues.filter((i) => i.source === 'bus_check').length);
+    if (cnt) throw new Error('shortages are in the synced problems');
+  }, tag);
+
+  await check(fm.page, 'bus checks: the Equipment tab lists the shortages by base and unit, exports them, and Mark restocked closes one', async () => {
+    const p = fm.page;
+    await p.goto(BASE + '/#buschecks'); await p.waitForSelector('#bct-equipment'); await p.click('#bct-equipment');
+    await p.waitForSelector(`#equ-${state.vid}`);
+    const unitBox = p.locator(`#equ-${state.vid}`);
+    const txt = await unitBox.innerText();
+    for (const t of [unitName, state.item, state.psi, 'Reading 800', 'Mark all restocked']) if (!txt.includes(t)) throw new Error('Equipment tab lacks "' + t + '": ' + txt);
+    if (!(await p.locator('#eqBar select#eqf-base').count()) || !(await p.locator('#eqBar select#eqf-unit').count())) throw new Error('no base and unit filters');
+    // filter by this unit
+    await p.selectOption('#eqf-unit', state.vid);
+    await p.waitForFunction((n) => document.querySelectorAll('.equnit').length === 1 && document.querySelector('.equnit .ulink')?.textContent === n, unitName);
+    await p.selectOption('#eqf-unit', '');
+    await p.waitForSelector(`#equ-${state.vid}`);
+    await shot(p, '20-bus-checks-equipment'); await noOverflow(p);
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#bcExportE')]);
+    const csv = readFileSync(await dl.path(), 'utf8');
+    if (!csv.includes(state.item) || !csv.includes(unitName) || !csv.includes('What was found')) throw new Error('equipment CSV lacks the shortage');
+    // mark one restocked, with a note
+    await unitBox.locator('tr', { hasText: state.item }).locator('button[data-act="eq-restock"]').click();
+    await p.waitForSelector('#cfNote');
+    if (!/Mark this item restocked/.test(await p.locator('#confirmRoot').innerText())) throw new Error('confirm text: ' + await p.locator('#confirmRoot').innerText());
+    await p.fill('#cfNote', 'Restocked from stores (' + tag + ')');
+    await shot(p, '20-bus-checks-restock-confirm');
+    await p.click('#cfYes');
+    await p.waitForFunction((t) => !document.querySelector(`#equ-${t.v}`)?.innerText.includes(t.i), { v: state.vid, i: state.item }, { timeout: 10000 });
+    if (!(await p.locator(`#equ-${state.vid}`).innerText()).includes(state.psi)) throw new Error('the other shortage disappeared too');
+    // it is under Restocked recently, with the note
+    await p.click('#eqRecentBtn'); await p.waitForSelector('#eqRecentTable');
+    const rec = await p.locator('#eqRecentTable').innerText();
+    for (const t of [unitName, state.item, 'Restocked from stores (' + tag + ')']) if (!rec.includes(t)) throw new Error('Restocked recently lacks "' + t + '": ' + rec);
+    await noOverflow(p);
   }, tag);
 
   await check(fm.page, 'bus checks: the unit page has a Bus checks tab with the check', async () => {
     const p = fm.page;
-    await p.goto(BASE + '/#buschecks'); await p.waitForSelector('.bccell');
+    await p.goto(BASE + '/#buschecks'); await p.waitForSelector('#bct-today'); await p.click('#bct-today'); await p.waitForSelector('.bccell'); // the page remembers the last tab (Equipment)
     await p.locator('tr', { has: p.locator('th', { hasText: unitName }) }).locator('button[data-act="open-vehicle"]').click();
     await p.waitForSelector('#vt-buschecks'); await p.click('#vt-buschecks');
     await p.waitForSelector('#bcuTable');
     if (!(await p.locator('#bcuTable td .badge', { hasText: '2' }).count())) throw new Error('shortage count missing in the unit tab');
+    // the unit's open shortages (one was restocked in the Equipment tab): restock the other one from here
+    await p.waitForSelector('#vEquipTable');
+    const eqTxt = await p.locator('#vEquip').innerText();
+    if (!eqTxt.includes(state.psi) || eqTxt.includes(state.item)) throw new Error('unit shortages are wrong: ' + eqTxt);
+    await p.locator('#vEquip button[data-act="eq-restock"]').click();
+    await p.waitForSelector('#cfYes'); await p.click('#cfYes');
+    await p.waitForFunction(() => /Nothing is reported short/.test(document.querySelector('#vEquip')?.innerText || ''));
+  }, tag);
+
+  await check(crew.page, 'bus checks: once everything is restocked the crew sees nothing known on the unit', async () => {
+    const p = crew.page;
+    await p.reload(); await p.waitForSelector('#bc-unit');
+    await p.selectOption('#bc-unit', state.vid); await p.waitForSelector('#bcList');
+    await p.waitForSelector('#bcKnownNone');
   }, tag);
 
   await check(crew.page, 'bus checks: crew and manager have no console errors', async () => {
