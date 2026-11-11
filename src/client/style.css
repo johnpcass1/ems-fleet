@@ -595,7 +595,8 @@ table.rolemx tr.rfoot td,table.rolemx tr.rfoot th{padding-top:10px;padding-botto
   .actmore{display:none}
   .actmore.open{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .actmore.open .f2,.actmore.open .dtpair{flex:1 1 100%}
-  .actmore.open .dt{flex:1 1 0}
+  .actmore.open .dt{flex:1 1 0;min-width:0}
+  .actmore.open .dtpair{min-width:0}
   .actmore.open .dt input{width:100%}
   .actbar .f2.q{flex:1 1 100%;max-width:none}
   .actrow{grid-template-columns:46px minmax(0,1fr) auto;padding:10px 12px}

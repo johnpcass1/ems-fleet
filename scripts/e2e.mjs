@@ -47,7 +47,7 @@ let failures = 0;
 async function check(page, name, fn, tag) {
   try { await fn(); results.push(['ok', tag, name]); log('  ok  ', name); }
   catch (e) {
-    if (process.env.E2E_DEBUG) console.log(String(e.stack || e.message).slice(0, 900));
+    if (process.env.E2E_DEBUG) console.log(String(e.stack || e.message).slice(0, 3000));
     failures++; results.push(['FAIL', tag, name, String(e.message).split('\n')[0]]); log('  FAIL', name, '-', String(e.message).split('\n')[0]);
     try { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: `${SHOTS}/FAIL-${tag}-${name.replace(/\W+/g, '-')}.png` }); } catch { /* ignore */ }
   }
@@ -523,7 +523,9 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
   }, tag);
   /* ---- Activity history ---- */
   const gotoActivity = async (pg) => {
-    if (await pg.locator('#menuBtn').isVisible()) await pg.click('#menuBtn');
+    // after a reload the shell may not be drawn yet; wait for it before deciding whether the phone menu needs opening
+    await pg.waitForSelector('#nav a[data-r="activity"]', { state: 'attached' });
+    if (await pg.locator('#menuBtn').isVisible() && !(await pg.locator('#nav a[data-r="activity"]').isVisible())) await pg.click('#menuBtn');
     await pg.click('#nav a[data-r="activity"]');
     await pg.waitForFunction(() => location.hash === '#activity');
     await pg.waitForSelector('#actFilters');
@@ -545,7 +547,7 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     if (!/^\d\d:\d\d$/.test((await su.page.locator('.at-t').first().innerText()).trim())) throw new Error('time is not HH:MM');
     if (/[{}]|baseId|before_json/.test(t)) throw new Error('raw JSON or field names on screen');
     await shot(su.page, '18-activity'); await noOverflow(su.page);
-    if (await su.page.locator('#actFiltersBtn').isVisible()) { await su.page.click('#actFiltersBtn'); await noOverflow(su.page); await shot(su.page, '18c-activity-filters-open'); await su.page.click('#actFiltersBtn'); }
+    if (await su.page.locator('#actFiltersBtn').isVisible()) { await su.page.click('#actFiltersBtn'); await su.page.waitForSelector('#actMore.open #act-type', { state: 'visible' }); await noOverflow(su.page); await shot(su.page, '18c-activity-filters-open'); await su.page.click('#actFiltersBtn'); await su.page.waitForSelector('#actMore', { state: 'hidden' }); }
   }, tag);
   await check(su.page, 'activity history: filter by type, see the moves, expand a row for before -> after, keyboard works', async () => {
     await openFilters(su.page);
