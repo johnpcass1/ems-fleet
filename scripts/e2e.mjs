@@ -748,6 +748,8 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
   await check(crew.page, 'bus checks: crew does the full check (All OK per section, one Short, mileage and hours) and sends it', async () => {
     const p = crew.page;
     await p.goto(BASE + '/#buscheck'); await p.waitForSelector('#bc-unit');
+    // the list was made a moment ago in another browser; the page picks it up with its next sync (a reload only saves waiting for it)
+    await p.reload(); await p.waitForSelector('#bc-unit');
     await shot(p, '20-bus-check-start'); await noOverflow(p);
     const val = await p.evaluate((u) => { const o = [...document.querySelectorAll('#bc-unit option')].find((x) => x.textContent.startsWith(u + ' ')); return o ? o.value : null; }, unitName);
     if (!val) throw new Error('unit ' + unitName + ' not offered');
@@ -757,7 +759,7 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     if ((await p.inputValue('#bc-base')) === '') throw new Error('station not preselected');
     if ((await p.inputValue('#bc-emt1')) === '') throw new Error('EMT 1 is not the signed-in person');
     // a send with nothing filled in is refused with a clear message, and nothing is sent
-    await p.click('#bcSubmit'); await p.waitForSelector('#bcErr');
+    await p.click('#bcSubmit'); await p.waitForFunction(() => /EMT 2/.test(document.querySelector('#bcErr')?.innerText || ''));
     if (!/EMT 2/.test(await p.locator('#bcErr').innerText())) throw new Error('first problem should be EMT 2: ' + await p.locator('#bcErr').innerText());
     await p.selectOption('#bc-emt2', '__other'); await p.fill('#bc-emt2-name', 'Partner Medic');
     const cur = await p.locator('#view .panel', { hasText: 'Meter readings' }).first().locator('.ph .muted').innerText();
@@ -783,7 +785,7 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.locator('[data-v="short"]').first().scrollIntoViewIfNeeded();
     await shot(p, '20-bus-check-items'); await noOverflow(p);
     // not ticked yet: refused
-    await p.click('#bcSubmit'); await p.waitForSelector('#bcErr');
+    await p.click('#bcSubmit'); await p.waitForFunction(() => /Tick the box/.test(document.querySelector('#bcErr')?.innerText || ''));
     if (!/Tick the box/.test(await p.locator('#bcErr').innerText())) throw new Error('attestation not required: ' + await p.locator('#bcErr').innerText());
     await p.check('#bc-attest');
     await p.locator('#bcSubmit').scrollIntoViewIfNeeded();

@@ -165,6 +165,15 @@ describe('requirement lists', () => {
   it('lists reach the browser through sync, for everyone who reads fleet data', async () => {
     expect((await syncAll(crew.cookie)).data.busCheckLists).toHaveLength(1);
   });
+  it('a list made or changed after the first sync reaches the next (delta) sync', async () => {
+    const first = await api('GET', '/api/sync?since=0', { cookie: crew.cookie });
+    const cursor = first.json.cursor;
+    const id = must(await post(fm, '/api/bus-check-lists', { name: 'Late list', unitTypes: ['Late'], sections: [{ title: 'S', items: [{ name: 'Torch', kind: 'check' }] }] }), 'create').id;
+    const d1 = (await api('GET', '/api/sync?since=' + cursor, { cookie: crew.cookie })).json;
+    expect(d1.data.busCheckLists.map((l: any) => l.id)).toEqual([id]);
+    const d2 = (await api('GET', '/api/sync?since=' + d1.cursor, { cookie: crew.cookie })).json;
+    expect(d2.data.busCheckLists).toBeUndefined();
+  });
   it('picks the list by unit type, falling back to the default', async () => {
     must(await post(fm, '/api/bus-check-lists', { name: 'Only II', unitTypes: ['Type II ambulance'], sections: [{ title: 'S', items: [{ name: 'Torch', kind: 'check', id: 'torch' }] }] }), 'type list');
     // the old (default) list no longer applies to a Type II ambulance: submitting with it is "stale"
