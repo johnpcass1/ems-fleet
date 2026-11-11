@@ -5,6 +5,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
+/** Units already used by a bus check in an earlier screen config of this run (each config checks a different unit). */
+const USED_BC_UNITS = new Set();
 
 let PORT = 8799, BASE = `http://localhost:${PORT}`, PERSIST = '.wrangler/e2e';
 const SHOTS = 'docs/screenshots';
@@ -710,7 +712,9 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
   };
   const fm = await mk('fm'), crew = await mk('crew');
   const shot = (pg, name) => pg.screenshot({ path: `${SHOTS}/${tag}-${name}.png` });
-  const unitName = 'GEMA-0' + (n + 1); // a different HQ unit for each of the four runs, so earlier runs do not join this run's problems
+  // a different HQ unit for each of the four runs, so earlier runs do not join this run's problems; chosen from what the crew member is offered
+  // (earlier checks move some units away from HQ)
+  let unitName = '';
   const state = {};
   await check(fm.page, 'bus checks: fleet manager starts from the standard list and edits a requirement', async () => {
     if (!(await fm.page.locator('#nav a[data-r="buschecks"]').count())) throw new Error('no Bus checks in the fleet manager navigation');
@@ -751,8 +755,12 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     // the list was made a moment ago in another browser; the page picks it up with its next sync (a reload only saves waiting for it)
     await p.reload(); await p.waitForSelector('#bc-unit');
     await shot(p, '20-bus-check-start'); await noOverflow(p);
-    const val = await p.evaluate((u) => { const o = [...document.querySelectorAll('#bc-unit option')].find((x) => x.textContent.startsWith(u + ' ')); return o ? o.value : null; }, unitName);
-    if (!val) throw new Error('unit ' + unitName + ' not offered');
+    const opts = await p.evaluate(() => [...document.querySelectorAll('#bc-unit option')].filter((o) => o.value).map((o) => ({ v: o.value, t: o.textContent })));
+    if (opts.length < 4) throw new Error('crew offered only ' + opts.map((o) => o.t).join(' / '));
+    const pick = opts.find((o) => !USED_BC_UNITS.has(o.t.split(' ')[0]));
+    if (!pick) throw new Error('no unchecked unit left for this run');
+    unitName = pick.t.split(' ')[0]; USED_BC_UNITS.add(unitName);
+    const val = pick.v;
     await p.selectOption('#bc-unit', val);
     await p.waitForSelector('#bcList');
     if (!/Standard ambulance/.test(await p.locator('#bcList').innerText())) throw new Error('list not shown');
@@ -782,13 +790,13 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     if (!/^1 shortage$/.test(await p.locator('#bcShort').innerText())) throw new Error('shortage counter is ' + await p.locator('#bcShort').innerText());
     // a problem the crew reports themselves
     await p.click('#bcAddProblem'); await p.fill('#bc-pt-0', 'Cracked mirror (' + tag + ')');
-    await p.locator('[data-v="short"]').first().scrollIntoViewIfNeeded();
+    await p.waitForFunction((t) => document.querySelector('#bc-pt-0')?.value === t, 'Cracked mirror (' + tag + ')'); await p.evaluate(() => document.querySelector('[data-v="short"]').scrollIntoView({ block: 'center' }));
     await shot(p, '20-bus-check-items'); await noOverflow(p);
     // not ticked yet: refused
     await p.click('#bcSubmit'); await p.waitForFunction(() => /Tick the box/.test(document.querySelector('#bcErr')?.innerText || ''));
     if (!/Tick the box/.test(await p.locator('#bcErr').innerText())) throw new Error('attestation not required: ' + await p.locator('#bcErr').innerText());
     await p.check('#bc-attest');
-    await p.locator('#bcSubmit').scrollIntoViewIfNeeded();
+    await p.evaluate(() => document.querySelector('#bcSubmit').scrollIntoView({ block: 'center' }));
     await shot(p, '20-bus-check-submit'); await noOverflow(p);
     await p.click('#bcSubmit'); await p.waitForSelector('#cfYes');
     const conf = await p.locator('#cfM').innerText();
@@ -828,7 +836,8 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     if (!(await p.locator('#bcHist tr', { hasText: unitName }).count())) throw new Error('check not in history');
     await p.locator('#bcHist tr', { hasText: unitName }).first().locator('button[data-act="bc-open"]').click();
     await p.waitForSelector('#bcvNote'); await p.keyboard.press('Escape'); await p.waitForSelector('#drawerRoot .drawer', { state: 'detached' });
-    await p.goto(BASE + '/#issues'); await p.waitForSelector('#view h1');
+    // the problems arrive with the next background sync (about every 20 s); a reload fetches them now
+    await p.goto(BASE + '/#issues'); await p.reload(); await p.waitForSelector('#view h1');
     await p.waitForFunction((t) => document.querySelector('#view').innerText.includes(t), 'Bus check: ' + state.item + ' short');
     const view = await p.locator('#view').innerText();
     if (!view.includes('Cracked mirror (' + tag + ')')) throw new Error('reported problem not in Problems');

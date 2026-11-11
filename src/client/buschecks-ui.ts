@@ -16,7 +16,7 @@ import { showDrawer } from './dom';
 import { reqTab, requirementsActs, resetRequirements } from './busreq-ui';
 
 type Tab = 'today' | 'shortages' | 'history' | 'requirements';
-const STALE_MS = 60e3;
+const STALE_MS = 30e3;
 interface Slot { data: any; sig: string; at: number; loading: boolean; err: string; token: number }
 const slot = (): Slot => ({ data: null, sig: '', at: 0, loading: false, err: '', token: 0 });
 const rs = {
@@ -30,6 +30,10 @@ export const canReports = () => can('busCheckReports');
 export const canBusScreen = () => can('busCheckReports') || can('busCheckEdit');
 const tabs = (): [Tab, string][] => [...(canReports() ? [['today', 'Today'], ['shortages', 'Shortages'], ['history', 'History']] as [Tab, string][] : []), ...(can('busCheckEdit') ? [['requirements', 'Requirements'] as [Tab, string]] : [])];
 const curTab = (): Tab => { const t = tabs(); return (t.find(([k]) => k === rs.tab) ? rs.tab : t[0]?.[0]) as Tab; };
+
+/** Show fresh numbers whenever someone opens this screen or a tab (crews may have sent checks since it was last loaded). */
+function markStale() { rs.today.at = 0; rs.short.at = 0; rs.hist.at = 0; rs.unit = {}; }
+window.addEventListener('hashchange', () => { if (/^#(buschecks|vehicle)$/.test(location.hash)) markStale(); });
 
 export function resetBusChecks() {
   rs.tab = ''; rs.date = ''; rs.from = ''; rs.to = ''; rs.today = slot(); rs.short = slot(); rs.unit = {};
@@ -203,7 +207,7 @@ VT.buschecks = function (v: any) {
 /* ---------- actions ---------- */
 export const busChecksActs: Record<string, any> = {
   ...requirementsActs,
-  'bc-tab': (el: HTMLElement) => { rs.tab = el.dataset.tab as Tab; scheduleRender(); },
+  'bc-tab': (el: HTMLElement) => { rs.tab = el.dataset.tab as Tab; markStale(); scheduleRender(); },
   'bc-day': (el: HTMLElement) => { const n = Number(el.dataset.d); rs.date = n === 0 ? '' : addDays(rs.date || todayStr(), n); scheduleRender(); },
   'bc-retry': (el: HTMLElement) => { const w = el.dataset.w; if (w === 'today') retry(rs.today); else if (w === 'short') retry(rs.short); else { rs.hist.sig = ''; rs.hist.err = ''; scheduleRender(); } },
   'bc-unit-retry': (el: HTMLElement) => { delete rs.unit[el.dataset.id!]; scheduleRender(); },
