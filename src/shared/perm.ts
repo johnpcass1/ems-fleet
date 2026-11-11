@@ -128,7 +128,14 @@ export interface Actor {
   role: Role;
   baseIds: string[];
   mechanicId: string | null;
-  /** True when the email is in SUPERUSER_EMAILS (set in code, see docs/HANDOVER.md). */
+  /**
+   * The agency whose data this request works in. Every query on agency data filters by it. It is the person's own agency, except while
+   * the super user is viewing another agency (then it is that agency). Set only by the server from the session, never from the browser.
+   */
+  agencyId: string;
+  /** The agency the account belongs to (users.agency_id). */
+  homeAgencyId: string;
+  /** True when the email is in SUPERUSER_EMAILS and the account belongs to the home agency (SUPERUSER_AGENCY). See docs/HANDOVER.md. */
   isSuper?: boolean;
   /** This person's own changes to what their role allows (key -> true/false). */
   permOverrides?: Record<string, boolean>;

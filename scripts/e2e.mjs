@@ -57,9 +57,10 @@ const noOverflow = async (page) => {
   if (o.sw > o.iw + 1) throw new Error(`horizontal overflow: page ${o.sw}px in ${o.iw}px viewport ${o.wide.join(' ')}`);
 };
 
-async function login(page, email, password) {
+async function login(page, email, password, agency = 'GEMA') {
   await page.goto(BASE + '/#board');
   await page.waitForSelector('#lg-email');
+  await page.fill('#lg-agency', agency);
   await page.fill('#lg-email', email); await page.fill('#lg-pass', password);
   await page.click('#lg-submit');
 }
@@ -81,7 +82,7 @@ async function adminFlow(page, cfg, tag, secrets, errs) {
     await page.goto(BASE + '/'); await page.waitForSelector('#lg-email');
     await shot('01-login');
     await noOverflow(page);
-    await page.fill('#lg-email', secrets.adminEmail); await page.fill('#lg-pass', 'not-the-password'); await page.click('#lg-submit');
+    await page.fill('#lg-agency', 'GEMA'); await page.fill('#lg-email', secrets.adminEmail); await page.fill('#lg-pass', 'not-the-password'); await page.click('#lg-submit');
     await page.waitForSelector('#lg-err:not([hidden])');
     errs.length = 0; // the browser logs the deliberate 401 of a wrong password; that is not a fault
   }, tag);
@@ -635,7 +636,7 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
   }, tag);
   await check(su.page, 'activity history: failed and successful sign-ins, search, Load more, CSV export of the filtered view', async () => {
     // 55 failed sign-ins from unknown addresses (the browser logs each 401 as a console error; that is expected)
-    await su.page.evaluate(async (tg) => { for (let i = 0; i < 55; i++) await fetch('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ email: `bad-${i}-${tg}@example.org`, password: 'not-a-real-password' }) }); }, tag);
+    await su.page.evaluate(async (tg) => { for (let i = 0; i < 55; i++) await fetch('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ agencyId: 'GEMA', email: `bad-${i}-${tg}@example.org`, password: 'not-a-real-password' }) }); }, tag);
     await su.page.reload(); await gotoActivity(su.page);
     await openFilters(su.page);
     await su.page.selectOption('#act-type', 'sign_ins');
@@ -880,7 +881,7 @@ async function emailFlow(browser, cfg, secrets) {
     await c.page.click('#forgotLink'); await c.page.waitForSelector('#forgotForm');
     await shot(c.page, '09-forgot'); await noOverflow(c.page);
     const before = new Date().toISOString();
-    await c.page.fill('#fg-email', crew.email); await c.page.click('#fg-submit');
+    await c.page.fill('#fg-agency', 'GEMA'); await c.page.fill('#fg-email', crew.email); await c.page.click('#fg-submit');
     await c.page.waitForSelector('#fg-done');
     if (!/If that email has an account, we've sent a link to reset the password\./.test(await c.page.innerText('#fg-done'))) throw new Error('confirmation text');
     await shot(c.page, '10-forgot-sent'); await noOverflow(c.page);
@@ -895,18 +896,151 @@ async function emailFlow(browser, cfg, secrets) {
     await c.page.waitForSelector('.urow');
     // the previous password no longer works
     await logout(c.page);
-    await c.page.fill('#lg-email', crew.email); await c.page.fill('#lg-pass', 'Invitee-chosen-pass-1'); await c.page.click('#lg-submit');
+    await c.page.fill('#lg-agency', 'GEMA'); await c.page.fill('#lg-email', crew.email); await c.page.fill('#lg-pass', 'Invitee-chosen-pass-1'); await c.page.click('#lg-submit');
     await c.page.waitForSelector('#lg-err:not([hidden])');
     c.errs.length = 0; // the deliberate wrong password is logged by the browser as a 401
   }, t);
   await check(c.page, 'email: forgot password for an unknown address shows the same confirmation', async () => {
     await c.page.fill('#lg-email', ''); await c.page.click('#forgotLink'); await c.page.waitForSelector('#forgotForm');
-    await c.page.fill('#fg-email', 'nobody-here@example.org'); await c.page.click('#fg-submit');
+    await c.page.fill('#fg-agency', 'GEMA'); await c.page.fill('#fg-email', 'nobody-here@example.org'); await c.page.click('#fg-submit');
     await c.page.waitForSelector('#fg-done');
     if (!/If that email has an account/.test(await c.page.innerText('#fg-done'))) throw new Error('different text');
   }, t);
   await check(c.page, 'email: no console errors', async () => { if (c.errs.length) throw new Error(c.errs.slice(0, 3).join(' | ')); }, t);
   await c.ctx.close();
+}
+
+/**
+ * Several agencies on one site (screenshots 19-*): the super user adds an agency from Admin > Agencies; its administrator signs in with the new
+ * Agency ID and sees an empty fleet, not GEMA's; a wrong Agency ID is refused; the super user opens the agency (banner) and comes back.
+ * The e2e database is shared by the four screen configurations, so each one adds its own agency.
+ */
+async function agenciesFlow(browser, ctxOpts, tag, secrets) {
+  const code = 'E2E-' + tag.replace(/\W/g, '').toUpperCase().slice(0, 14), name = 'E2E Agency ' + tag, adminEmail = `boss@${code.toLowerCase()}.example.org`;
+  let adminPw = '';
+  const mk = async () => {
+    const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(10000);
+    const errs = []; page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+    return { ctx, page, errs };
+  };
+  const su = await mk();
+  const shot = (pg, n) => pg.screenshot({ path: `${SHOTS}/${tag}-${n}.png` });
+  const gotoHash = async (pg, h) => { await pg.evaluate((x) => { location.hash = x; }, h); };
+  await check(su.page, 'agencies: the login page asks for the Agency ID above Email, is neutral, and remembers the last Agency ID', async () => {
+    await su.page.goto(BASE + '/'); await su.page.waitForSelector('#lg-agency');
+    const order = await su.page.evaluate(() => { const a = document.getElementById('lg-agency'), e = document.getElementById('lg-email'); return { before: !!(a.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING), ph: a.placeholder, label: a.closest('label').innerText.trim(), text: document.body.innerText, h1: document.querySelector('#view h1').innerText, title: document.title }; });
+    if (!order.before) throw new Error('Agency ID is not above Email');
+    if (order.ph !== 'GEMA' || order.label !== 'Agency ID') throw new Error('label/placeholder: ' + order.label + ' / ' + order.ph);
+    if (/GEMA|Guyana/i.test(order.text) || /GEMA|Guyana/i.test(order.title)) throw new Error('GEMA wording on the login page');
+    if (order.h1 !== 'Fleet maintenance') throw new Error('heading ' + order.h1);
+    await shot(su.page, '19-login-agency'); await noOverflow(su.page);
+    // case-insensitive and trimmed
+    await su.page.fill('#lg-agency', '  gema '); await su.page.fill('#lg-email', secrets.adminEmail); await su.page.fill('#lg-pass', secrets.adminPass); await su.page.click('#lg-submit');
+    await su.page.waitForSelector('.urow', { timeout: 15000 });
+    await logout(su.page);
+    if ((await su.page.inputValue('#lg-agency')) !== 'GEMA') throw new Error('the last Agency ID was not remembered: ' + (await su.page.inputValue('#lg-agency')));
+    await su.page.fill('#lg-email', secrets.adminEmail); await su.page.fill('#lg-pass', secrets.adminPass); await su.page.click('#lg-submit');
+    await su.page.waitForSelector('.urow', { timeout: 15000 });
+  }, tag);
+  let gemaUnit = '';
+  await check(su.page, 'agencies: Admin > Agencies lists GEMA as the home agency', async () => {
+    gemaUnit = await su.page.evaluate(async () => (await (await fetch('/api/sync?since=0')).json()).data.vehicles[0].unit);
+    if (await su.page.locator('#menuBtn').isVisible()) await su.page.click('#menuBtn');
+    await su.page.click('#nav a[data-r=agencies]');
+    await su.page.waitForSelector('#agenciesTable tr[data-agency=GEMA]');
+    const row = await su.page.innerText('#agenciesTable tr[data-agency=GEMA]');
+    if (!/home/i.test(row) || !/\bactive\b/i.test(row)) throw new Error('GEMA row: ' + row);
+    const head = await su.page.innerText('#agenciesTable thead');
+    for (const h of ['Agency ID', 'Name', 'Active users', 'Vehicles', 'Created']) if (!head.toLowerCase().includes(h.toLowerCase())) throw new Error('missing column ' + h);
+    await su.page.waitForFunction(() => !document.body.classList.contains('navopen')); await su.page.waitForTimeout(400); // the phone menu has slid away
+    await shot(su.page, '19-agencies'); await noOverflow(su.page);
+  }, tag);
+  await check(su.page, 'agencies: add an agency with its first administrator (Generate fills the password)', async () => {
+    await su.page.click('#addAgency'); await su.page.waitForSelector('#agencyForm');
+    await su.page.fill('#ag-code', code.toLowerCase()); await su.page.fill('#ag-name', name);
+    await su.page.fill('#ag-aname', 'Boss ' + tag); await su.page.fill('#ag-aemail', adminEmail);
+    await su.page.click('#ag-gen'); adminPw = await su.page.inputValue('#ag-pw');
+    if (adminPw.length < 10 || (await su.page.inputValue('#ag-pw2')) !== adminPw) throw new Error('Generate did not fill both password fields');
+    await shot(su.page, '19-add-agency'); await noOverflow(su.page);
+    await su.page.click('#ag-save');
+    await su.page.waitForSelector(`#agenciesTable tr[data-agency="${code}"]`);
+    const row = await su.page.innerText(`#agenciesTable tr[data-agency="${code}"]`);
+    if (!row.includes(name) || !/\bactive\b/i.test(row)) throw new Error('new row: ' + row);
+    // a duplicate code is refused with a message
+    await su.page.click('#addAgency'); await su.page.waitForSelector('#agencyForm');
+    await su.page.fill('#ag-code', code); await su.page.fill('#ag-name', 'Again'); await su.page.fill('#ag-aname', 'X Y'); await su.page.fill('#ag-aemail', 'x@again.example.org');
+    await su.page.click('#ag-gen'); await su.page.click('#ag-save');
+    await su.page.waitForFunction(() => /already in use/i.test(document.getElementById('toasts').innerText));
+    await su.page.click('#ag-cancel');
+  }, tag);
+  const adm = await mk();
+  await check(adm.page, 'agencies: the new administrator signs in with the new Agency ID and sees an empty fleet, not GEMA\'s', async () => {
+    await login(adm.page, adminEmail, adminPw, code);
+    await adm.page.waitForSelector('#view .empty', { timeout: 15000 });
+    const t = await adm.page.innerText('body');
+    if (t.includes(gemaUnit)) throw new Error('GEMA unit ' + gemaUnit + ' is visible');
+    if (!/Nothing set up yet|No vehicles yet/.test(t)) throw new Error('empty state text missing');
+    await adm.page.screenshot({ path: `${SHOTS}/${tag}-19-new-agency-empty-board.png` }); await noOverflow(adm.page);
+    const brand = await adm.page.evaluate(() => ({ b: document.getElementById('brandName').textContent, title: document.title }));
+    if (brand.b !== name) throw new Error('sidebar title ' + brand.b);
+    if (brand.title !== `Status board - ${name} Fleet`) throw new Error('document title ' + brand.title);
+    // every screen this person can open draws without error on an empty agency
+    for (const r of ['dispatch', 'vehicles', 'pm', 'issues', 'work-orders', 'parts', 'reports', 'setup', 'users', 'roles', 'activity']) {
+      await gotoHash(adm.page, '#' + r); await adm.page.waitForTimeout(250);
+      if (/Something went wrong/.test(await adm.page.innerText('#view'))) throw new Error('screen ' + r + ' failed to draw');
+    }
+    if (await adm.page.locator('#nav a[data-r=agencies]').count()) throw new Error('an agency administrator can see the Agencies screen');
+    const api403 = await adm.page.evaluate(async () => (await fetch('/api/agencies')).status);
+    if (api403 !== 403) throw new Error('GET /api/agencies gave ' + api403);
+    await gotoHash(adm.page, '#board'); await adm.page.waitForSelector('#view .empty');
+    await logout(adm.page);
+  }, tag);
+  await check(adm.page, 'agencies: a wrong Agency ID is refused with the same message as a wrong password', async () => {
+    const attempt = async (agency, email, pw) => {
+      await adm.page.fill('#lg-agency', agency); await adm.page.fill('#lg-email', email); await adm.page.fill('#lg-pass', pw); await adm.page.click('#lg-submit');
+      await adm.page.waitForSelector('#lg-err:not([hidden])');
+      const t = await adm.page.innerText('#lg-err');
+      await adm.page.evaluate(() => { document.getElementById('lg-err').hidden = true; });
+      return t;
+    };
+    const a = await attempt('GEMA', adminEmail, adminPw), b = await attempt('NOPE-ZZ', adminEmail, adminPw), c = await attempt(code, adminEmail, 'not-the-password-1');
+    if (a !== b || b !== c) throw new Error(`messages differ: "${a}" / "${b}" / "${c}"`);
+    if (!/Agency ID/.test(a)) throw new Error('message does not mention the Agency ID: ' + a);
+  }, tag);
+  await adm.ctx.close();
+  await check(su.page, 'agencies: Open switches into the agency with a banner; Back returns', async () => {
+    await gotoHash(su.page, '#agencies');
+    await su.page.waitForSelector(`#oa-${code}`);
+    await su.page.click(`#oa-${code}`);
+    await su.page.waitForSelector('#agencyBanner');
+    const b = await su.page.innerText('#agencyBanner');
+    if (!b.includes(`Viewing ${name} (${code}) as the super user`) || !b.includes('Back to GEMA')) throw new Error('banner: ' + b);
+    await su.page.waitForSelector('#view .empty');
+    if ((await su.page.innerText('body')).includes(gemaUnit)) throw new Error('GEMA unit visible inside the other agency');
+    if ((await su.page.evaluate(() => document.getElementById('brandName').textContent)) !== name) throw new Error('sidebar title did not switch');
+    await shot(su.page, '19-agency-banner'); await noOverflow(su.page);
+    await su.page.click('#agencyBack');
+    await su.page.waitForSelector('#agenciesTable');
+    if (await su.page.locator('#agencyBanner').count()) throw new Error('banner still showing after Back');
+    if ((await su.page.evaluate(() => document.getElementById('brandName').textContent)) !== 'GEMA') throw new Error('sidebar title did not come back');
+    await gotoHash(su.page, '#board'); await su.page.waitForSelector('.urow');
+    if (!(await su.page.innerText('body')).includes(gemaUnit)) throw new Error('GEMA data did not come back');
+  }, tag);
+  await check(su.page, 'agencies: rename, deactivate (people are refused), reactivate', async () => {
+    await gotoHash(su.page, '#agencies');
+    await su.page.click(`#ra-${code}`); await su.page.waitForSelector('#agencyRenameForm');
+    await su.page.fill('#ar-name', name + ' renamed'); await su.page.click('#ar-save');
+    await su.page.waitForFunction((n) => document.getElementById('agenciesTable').innerText.includes(n), name + ' renamed');
+    await su.page.click(`#da-${code}`); await su.page.click('#cfYes');
+    await su.page.waitForFunction((c) => /deactivated/i.test(document.querySelector(`#agenciesTable tr[data-agency="${c}"]`).innerText), code);
+    const status = await su.page.evaluate(async ([c, e, p]) => (await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'gema-fleet' }, body: JSON.stringify({ agencyId: c, email: e, password: p }) })).status, [code, adminEmail, adminPw]);
+    if (status !== 401) throw new Error('a deactivated agency still signs in: ' + status);
+    su.errs.length = 0;
+    await su.page.click(`#da-${code}`);
+    await su.page.waitForFunction((c) => /\bactive\b/i.test(document.querySelector(`#agenciesTable tr[data-agency="${c}"]`).innerText), code);
+  }, tag);
+  await check(su.page, 'agencies: no console errors', async () => { const real = su.errs.filter((e) => !/40[13]/.test(e)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag);
+  await su.ctx.close();
 }
 
 /* ---------- main ---------- */
@@ -942,6 +1076,7 @@ async function emailFlow(browser, cfg, secrets) {
     await check(page, 'admin: no console errors', async () => { let skip = expected401; const real = errs.filter((e) => !(skip > 0 && /401/.test(e) && skip--)); if (real.length) throw new Error(real.slice(0, 3).join(' | ')); }, tag);
     await ctx.close();
     await managersFlow(browser, ctxOpts, tag, secrets);
+    await agenciesFlow(browser, ctxOpts, tag, secrets);
     await roleFlow(browser, ctxOpts, tag, 'crew', secrets, 'crew');
     await roleFlow(browser, ctxOpts, tag, 'disp', secrets, 'dispatcher');
     await roleFlow(browser, ctxOpts, tag, 'mech', secrets, 'mechanic');

@@ -20,7 +20,7 @@ describe('users screen API', () => {
     expect(pat).toMatchObject({ role: 'crew', active: true, mustChangePassword: false, invited: false });
     expect(JSON.stringify(list.json)).not.toContain('pbkdf2');
     expect(JSON.stringify(list.json)).not.toContain(PW);
-    const login = await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } });
+    const login = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } });
     expect(login.status).toBe(200);
     expect(login.json.user.mustChangePassword).toBe(false);
     expect((await api('GET', '/api/sync', { cookie: cookieOf(login) })).status).toBe(200);
@@ -84,8 +84,8 @@ describe('users screen API', () => {
     expect(set.status).toBe(200);
     expect(JSON.stringify(set.json)).not.toContain('new-chosen-pass-2');
     expect((await api('GET', '/api/sync', { cookie: patCookie })).status).toBe(401);
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } })).status).toBe(401);
-    const again = await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: 'new-chosen-pass-2' } });
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } })).status).toBe(401);
+    const again = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: 'new-chosen-pass-2' } });
     expect(again.status).toBe(200);
     expect(again.json.user.mustChangePassword).toBe(false);
     // people can still change their own password
@@ -105,16 +105,16 @@ describe('users screen API', () => {
     expect((await api('POST', '/api/users/u-nope/password', { cookie: fm, body: { password: 'brand-new-pass-1' } })).status).toBe(404);
     expect((await api('POST', url, { body: { password: 'brand-new-pass-1' } })).status).toBe(401);
     // the old password still works after all those refusals
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } })).status).toBe(200);
   });
   it('deactivate signs the person out and blocks login; reactivate restores it; you cannot deactivate yourself', async () => {
     const created = await mk(fm);
-    const login = await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } });
+    const login = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } });
     await api('POST', `/api/users/${created.json.id}/deactivate`, { cookie: fm });
     expect((await api('GET', '/api/auth/me', { cookie: cookieOf(login) })).status).toBe(401);
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } })).status).toBe(401);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } })).status).toBe(401);
     await api('POST', `/api/users/${created.json.id}/reactivate`, { cookie: fm });
-    expect((await api('POST', '/api/auth/login', { body: { email: 'pat@gema.test', password: PW } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'pat@gema.test', password: PW } })).status).toBe(200);
     const me = await row("SELECT id FROM users WHERE email = 'fm@gema.test'");
     expect((await api('POST', `/api/users/${me.id}/deactivate`, { cookie: fm })).status).toBe(400);
   });

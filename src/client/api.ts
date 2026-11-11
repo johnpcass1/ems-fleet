@@ -47,7 +47,7 @@ export function syncNow(): Promise<boolean> {
   if (syncing) return syncing.then(() => syncNow());
   syncing = (async () => {
     try {
-      const res = await api('GET', '/sync?since=' + S.cursor, undefined, { quiet: false });
+      const res = await api('GET', '/sync?since=' + S.cursor + (S.me?.agency ? '&agency=' + encodeURIComponent(S.me.agency.id) : ''), undefined, { quiet: false });
       const changed = res.full || Object.keys(res.data || {}).length > 0 || Object.keys(res.deleted || {}).length > 0;
       const meChanged = applyMe(res.me);
       if (changed || !S.ready) { applySync(res); scheduleRender(); }

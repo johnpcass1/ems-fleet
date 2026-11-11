@@ -51,4 +51,4 @@ export const menuHtml = (key: string, label: string, items: MenuItem[], o: { cls
 export const emptyState = (ic: string, title: string, help: string, action = '') => `<div class="empty">${icon(ic, 'big')}<h2>${esc(title)}</h2><p class="muted">${esc(help)}</p>${action}</div>`;
 export const initials = (name: string) => (String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('') || '?').toUpperCase();
 /** The mark and name above the logged-out panels. */
-export const brandHtml = () => `<div class="brandrow"><i class="mark" aria-hidden="true"></i><span>GEMA Fleet</span></div>`;
+export const brandHtml = (label = '') => `<div class="brandrow"><i class="mark" aria-hidden="true"></i>${label ? `<span>${esc(label)}</span>` : ''}</div>`;

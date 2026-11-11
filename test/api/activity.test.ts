@@ -158,7 +158,7 @@ describe('filters and paging', () => {
 });
 
 describe('sign-in history', () => {
-  const login = (email: string, password: string) => api('POST', '/api/auth/login', { body: { email, password } });
+  const login = (email: string, password: string) => api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email, password } });
   const allAudit = async () => JSON.stringify(await rows('SELECT * FROM audit_log'));
 
   it('records successful sign-ins and sign-outs with no password', async () => {
@@ -217,7 +217,7 @@ describe('sign-in history', () => {
 
 describe('the audit writer never stores secrets', () => {
   it('strips password, hash, token and session keys even when a caller passes them', async () => {
-    const tx = new Tx(E.DB, { id: 'u1', email: 'a@x.org' } as any);
+    const tx = new Tx(E.DB, { id: 'u1', email: 'a@x.org', agencyId: 'GEMA' } as any);
     tx.audit('test.secret', 'user', 'u1',
       { name: 'x', password: 'pw-before', password_hash: 'hash-before', nested: { token: 'tok-before', keep: 1 } },
       { name: 'y', newPassword: 'pw-after', token_hash: 'th', session: { id: 'sess-after', user: 'u1' }, list: [{ resetToken: 'rt', ok: true }], link: 'https://x/set-password#t=LinkSecret_123' });
@@ -257,11 +257,11 @@ describe('CSV export', () => {
     const fm = await as('fleet_manager', { name: 'Fran Manager' });
     await clearAudit();
     await api('POST', '/api/moves', { cookie: fm.cookie, body: { vehicleIds: ['v-02'], toBaseId: 'b-linden' } });
-    await api('POST', '/api/auth/login', { body: { email: 'nobody@example.org', password: 'x' } });
+    await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'nobody@example.org', password: 'x' } });
     const { r, text, bytes } = await csv(sup, 'type=vehicles');
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]); // a byte-order mark, so Excel reads it as UTF-8
     expect(r.headers.get('content-type')).toMatch(/text\/csv/);
-    expect(r.headers.get('content-disposition')).toMatch(/attachment; filename="gema-fleet-activity-\d{4}-\d{2}-\d{2}\.csv"/);
+    expect(r.headers.get('content-disposition')).toMatch(/attachment; filename="fleet-activity-gema-\d{4}-\d{2}-\d{2}\.csv"/);
     expect(text.startsWith('﻿When (Guyana time),Person,Email,Role,Type,What happened')).toBe(true);
     const lines = text.trim().split('\r\n');
     expect(lines).toHaveLength(2);
@@ -283,7 +283,7 @@ describe('CSV export', () => {
     expect((await csv(sup, 'entityType=vehicle&entityId=other-person')).text).toContain('other-person');
   });
   it('keeps spreadsheet programs from running formulas typed into the email box', async () => {
-    await api('POST', '/api/auth/login', { body: { email: '=cmd|calc@evil.org', password: 'x' } });
+    await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: '=cmd|calc@evil.org', password: 'x' } });
     const { text } = await csv(await superCookie(), 'type=sign_ins');
     expect(text).toContain("'=cmd|calc@evil.org");
     expect(text).not.toMatch(/,=cmd/);

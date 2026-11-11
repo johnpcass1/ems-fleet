@@ -34,7 +34,7 @@ describe('upload', () => {
       expect(r.json.type).toBe(type);
       const a = await row('SELECT * FROM attachments WHERE id = ?', r.json.id);
       expect(a).toMatchObject({ entity_type: 'issue', entity_id: 'i-04', name, content_type: type, size: bytes.length });
-      expect(a.r2_key).toBe('attachments/' + r.json.id);
+      expect(a.r2_key).toBe('attachments/GEMA/' + r.json.id);
       expect(await E.FILES.head(a.r2_key)).toBeTruthy();
     }
   });
@@ -170,13 +170,13 @@ describe('uploads switch (Features, super user only)', () => {
     expect(await r2Count()).toBe(0);
   });
   it('a settings document without features counts as off, on the server and in what clients receive', async () => {
-    await E.DB.prepare("UPDATE settings SET data = '{\"approvalThresholdGYD\":150000}' WHERE id = 'main'").run();
+    await E.DB.prepare("UPDATE settings SET data = '{\"approvalThresholdGYD\":150000}' WHERE id = 'GEMA'").run();
     await setUploads(null, false); // writes features.uploads = false next to the old keys
-    await E.DB.prepare("UPDATE settings SET data = '{\"approvalThresholdGYD\":150000}' WHERE id = 'main'").run();
+    await E.DB.prepare("UPDATE settings SET data = '{\"approvalThresholdGYD\":150000}' WHERE id = 'GEMA'").run();
     expect((await up(crew, form(pdf(), 'a.pdf', 'application/pdf'))).status).toBe(403);
     expect((await syncAll(fm)).data.settings[0].features).toBeUndefined(); // the browser reads a missing key as off
     expect((await syncAll(dispatcher)).data.settings[0].features).toEqual({ uploads: false });
-    await E.DB.prepare("UPDATE settings SET data = '{\"features\":{\"uploads\":\"yes\"}}' WHERE id = 'main'").run();
+    await E.DB.prepare("UPDATE settings SET data = '{\"features\":{\"uploads\":\"yes\"}}' WHERE id = 'GEMA'").run();
     expect((await up(crew, form(pdf(), 'a.pdf', 'application/pdf'))).status).toBe(403); // junk is not "on"
   });
   it('is refused before the body is read: an oversized or malformed upload gets 403, not 413 or 400', async () => {

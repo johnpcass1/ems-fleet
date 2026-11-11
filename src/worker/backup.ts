@@ -12,8 +12,9 @@ import type { Env } from './env';
 import { all, first } from './db';
 import { nowISO } from './http';
 
+// The backup covers the WHOLE database: every agency's rows (each row carries its agency_id) and the agencies table itself. It is for the super user only.
 export const BACKUP_TABLES = [
-  'counter', 'tombstones', 'bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'settings', 'vehicles', 'vehicle_pm', 'meter_readings', 'status_events', 'moves',
+  'agencies', 'counter', 'tombstones', 'bases', 'pm_programs', 'pm_tasks', 'mechanics', 'parts', 'settings', 'vehicles', 'vehicle_pm', 'meter_readings', 'status_events', 'moves',
   'issues', 'work_orders', 'work_order_lines', 'wo_issue_links', 'wo_pm_tasks', 'attachments', 'users', 'audit_log',
 ];
 // account_tokens and auth_throttle are left out on purpose: they only hold hashes of short-lived links and counters, and a restored link would be dead anyway.

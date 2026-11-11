@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { test, describe, it, expect } from 'vitest';
 import assert from 'node:assert';
 import { pmTaskStatus, avgHoursPerDay, projectDue, computeAvailability, checkReading, nextWoNumber, woTotal, isComeback, hoursAt, addDays, daysBetween, gyDate, toCsv } from '../../src/shared/pure';
 
@@ -52,3 +52,19 @@ t('comeback different code',()=>assert.ok(!isComeback(wo('b'),[wo('a',{status:'c
 t('hoursAt interpolates',()=>assert.equal(hoursAt([rd(10,100),rd(0,200)],now-5*D),150));
 t('Guyana date is UTC-4',()=>assert.equal(gyDate(Date.parse('2026-11-05T02:00:00Z')),'2026-11-04'));
 t('csv quoting',()=>assert.equal(toCsv([['a','b,c','d"e']]),'a,"b,c","d""e"'));
+
+import { fmtMoney, roundMoney, currencyOf } from '../../src/shared/constants';
+describe('money formatting by currency', () => {
+  it('formats G$ without cents and other currencies with cents', () => {
+    expect(fmtMoney(150000, 'GYD')).toBe('G$ 150,000');
+    expect(fmtMoney(1234.5, 'USD')).toBe('$ 1,234.50');
+    expect(fmtMoney(12, 'EUR')).toBe('€ 12.00');
+    expect(fmtMoney(99.6)).toBe('G$ 100');
+    expect(fmtMoney('x', 'USD')).toBe('$ 0.00');
+  });
+  it('unknown codes fall back to the Guyana dollar; rounding follows the currency', () => {
+    expect(currencyOf('ZZZ').code).toBe('GYD');
+    expect(roundMoney(10.37125, 'USD')).toBe(10.37);
+    expect(roundMoney(100.67, 'GYD')).toBe(101);
+  });
+});

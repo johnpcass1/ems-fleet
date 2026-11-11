@@ -15,7 +15,7 @@ beforeEach(async () => {
 
 describe('super user', () => {
   it('is flagged in the session and login responses, and only for the listed address', async () => {
-    const r = await api('POST', '/api/auth/login', { body: { email: SUPER_EMAIL, password: PASSWORD } });
+    const r = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: SUPER_EMAIL, password: PASSWORD } });
     expect(r.json.user.isSuperuser).toBe(true);
     expect(r.json.user.perms.backups).toBe(true);
     expect((await api('GET', '/api/auth/session', { cookie: su })).json.user.isSuperuser).toBe(true);

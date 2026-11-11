@@ -1,6 +1,6 @@
-# GEMA Fleet
+# Fleet maintenance (GEMA Fleet)
 
-Fleet maintenance for the Guyana EMS ambulance program (GEMA). It tracks which ambulances are in service, what is due for preventive maintenance (PM), problems reported by crews, work orders, parts, and costs (in Guyanese dollars, G$).
+Fleet maintenance for ambulance and vehicle fleets. It was built for the Guyana EMS ambulance program (GEMA), which is the first agency on the site, and several agencies can now share one site. It tracks which ambulances are in service, what is due for preventive maintenance (PM), problems reported by crews, work orders, parts, and costs (in Guyanese dollars, G$).
 
 It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, and R2 file storage. It is built to fit Cloudflare's free plan for a fleet of about 20 to 50 ambulances and 50 to 100 users. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -32,7 +32,9 @@ Roles are only the starting point, and there are three levels of administrator:
 
 The **super user** is set in code (see [docs/HANDOVER.md](docs/HANDOVER.md)) and has every permission. The **Roles & permissions** screen (Admin group in the sidebar) is a matrix of what each role can do by default, with a "Changed" marker against the built-in defaults, **Reset to default**, one **Save changes** button at the top right for all edits, and a confirmation that says how many people a change affects. A person's own changes beat their role's, which beat the built-in default. Each switch in the per-person drawer says whether it comes from the role default, a role change or a personal change. **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
 
-These rules are enforced by the server, not just hidden in the screen. People log in with an email and password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
+**Agencies.** One site can serve several agencies (organisations). Each has its own vehicles, bases, people, roles, settings, work order numbers, files and activity history, and nobody in one agency can see or change another's. People log in with an **Agency ID** (for example `GEMA`), their email and their password; the same email can be used in two agencies as two separate accounts. The super user adds and manages agencies in **Admin > Agencies** (see [docs/HANDOVER.md](docs/HANDOVER.md), *Agencies*). The first agency is `GEMA`, and existing data belongs to it.
+
+These rules are enforced by the server, not just hidden in the screen. People log in with an Agency ID, an email and a password. There is no public sign-up: a fleet manager or system administrator creates each account and either chooses the person's password (and hands it over) or, once email is set up, sends an invite link so the person chooses their own. With email set up there is also a "Forgot password?" link on the login page. See [docs/EMAIL.md](docs/EMAIL.md).
 
 ## Quick start on your own computer
 
@@ -45,7 +47,7 @@ npm run seed:demo                            # (optional) loads a demo fleet, in
 npm run create-admin -- --email you@example.org --name "Your Name"
 ```
 
-The last command prints a temporary password. Open http://localhost:8787, log in, and choose your own password. (Add `--password-prompt` to type the password at a hidden prompt instead, or `--invite` to get a set-password link.)
+The last command prints a temporary password. Open http://localhost:8787, log in with Agency ID `GEMA`, your email and that password, and choose your own password. (Add `--password-prompt` to type the password at a hidden prompt instead, or `--invite` to get a set-password link.)
 
 Nothing in this project talks to Cloudflare until you deploy it yourself. The local database lives in the `.wrangler` folder and can be deleted at any time.
 
@@ -61,13 +63,13 @@ Nothing in this project talks to Cloudflare until you deploy it yourself. The lo
 | `npm run db:migrate` | Apply database changes locally (`:remote` and `:staging` for Cloudflare) |
 | `npm run seed:demo` | Load the demo fleet (marked as sample data) |
 | `npm run import:prototype -- <folder>` | Import data exported from the earlier prototype |
-| `npm run create-admin -- --email ... --name ... [--password-prompt \| --invite] [--remote]` | Create a system administrator (temporary password, hidden password prompt, or set-password link) |
+| `npm run create-admin -- --email ... --name ... [--agency CODE] [--password-prompt \| --invite] [--remote]` | Create a system administrator in an agency (default `GEMA`), with a temporary password, a hidden password prompt, or a set-password link |
 
 ## How it is built
 
 ```
 src/shared/   Rules used by both the browser and the server (PM due dates, availability, permissions, costs)
-src/worker/   The API (Hono): login, data sync, business rules, files, backups, nightly cron
+src/worker/   The API (Hono): login, data sync, business rules, agencies, files, backups, nightly cron
 src/client/   The website (Vite + TypeScript), ported from the prototype
 migrations/   Database tables (D1 / SQLite)
 scripts/      create-admin, seed, import, local dev, browser tests

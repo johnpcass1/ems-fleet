@@ -1,5 +1,19 @@
 # Security notes
 
+## Tenant isolation (agencies)
+
+Several agencies share one database, one Worker and one R2 bucket. The server keeps them apart; nothing depends on the browser.
+
+- **Every agency-owned row has `agency_id`** (all tables except `counter`, `auth_throttle`, `backup_jobs`). The rule for every statement: a SELECT filters on `agency_id`; an INSERT sets it; an UPDATE or DELETE adds `AND agency_id = ?`. Guards inside a transaction compare ids that were already looked up in the agency.
+- **The request's agency is decided in one place: `requireAuth`** (`src/worker/auth.ts`). It takes the session, the user's own row and (for the super user only) the agency their session is viewing, and sets `actor.agencyId`. The browser never names the agency it wants: the `agency` parameter on sync is only a hint that makes the server send a full copy when the browser's cached agency is stale. A session is bound to the agency of its account (`sessions.agency_id`); an inactive agency's sessions are deleted and its people cannot sign in.
+- **Ids from another agency are "not found".** `agencyRow` and `inAgency` (`src/worker/db.ts`) look an id up inside the agency; a record that exists elsewhere gives the same 404 or 400 as an id that does not exist at all. Records named in a request body (a vehicle on a new work order, a base in a move, a part on a line, a mechanic, a base on a user) are checked the same way.
+- **Writes** go through `Tx` (`src/worker/db.ts`), which carries the agency and stamps it on the audit and tombstone rows. **Reads for the screens** go through `loadDocs`/`loadDoc` (`src/worker/docs.ts`) and `syncSince` (`src/worker/sync.ts`); Activity history and its CSV filter in `fetchRows` (`src/worker/activity.ts`). Settings, features, role changes and work order numbers are per agency.
+- **Sign-in.** Agency ID plus email. Every failure (wrong or unknown Agency ID, inactive agency, wrong email, wrong password) gives the same message and costs the same time. The lock counter is per agency and email, including for a code that is not an agency. A failed sign-in is written to the history of the agency it was tried in; for a code that is not an agency nothing is written. Reset and invite tokens belong to an agency and are refused for any other. Forgot password is throttled by a hash of agency and email.
+- **The super user** is an email in `SUPERUSER_EMAILS` on an account in the home agency (`SUPERUSER_AGENCY`, default `GEMA`), checked by `isSuperuserAccount` (`src/worker/env.ts`). The same email in another agency is an ordinary account, and no one can create, edit or invite an account with such an email outside the home agency. The super user's session can act in another agency (Agencies > Open) only if that agency is active; this is stored on the session (`acting_agency_id`) and every use is audit-logged under the super user's own email in that agency. Agency management endpoints answer 403 to everyone else.
+- **Files.** New uploads are stored as `attachments/<AGENCY>/<id>`. Downloads and deletes look the attachment up by id **and agency** and use the key stored on that row, so an old key without a prefix still works for its own agency only.
+- **Known limits.** The change counter is one number for the whole database, so the cursor a browser holds reveals how many changes the site as a whole has made (not which agency made them). The backup is one file for the whole database (all agencies' data and password hashes) and only the super user can read it. Activity history for "failed sign-in" of an unknown Agency ID is not recorded. All agencies share the Cloudflare account's limits (requests, D1 and R2 storage), so one busy agency can use up the free allowance for all.
+- **For developers.** A new query on an agency-owned table must filter on `agency_id`; a new endpoint that takes an id must use `agencyRow`/`inAgency` or an agency-filtered query, and be added to the "ids from the other agency" list in `test/api/agencies.test.ts`.
+
 ## Passwords
 
 - Stored as **PBKDF2-SHA256** with a random 16-byte salt per password, in the form `pbkdf2-sha256$<rounds>$<salt>$<hash>`.
@@ -37,7 +51,7 @@
 
 ## Permissions, the super user and features
 
-- Every permission is decided on the server from the person's row and the settings record on each request, in this order: the super user (from `SUPERUSER_EMAILS`, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`); otherwise the role's change (`rolePerms` in the settings record); otherwise the built-in role default (`src/shared/perm.ts`). The browser receives the finished list only to hide buttons.
+- Every permission is decided on the server from the person's row and the agency's settings record on each request, in this order: the super user (from `SUPERUSER_EMAILS` on a home-agency account, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`); otherwise the role's change (`rolePerms` in the settings record); otherwise the built-in role default (`src/shared/perm.ts`). The browser receives the finished list only to hide buttons.
 - **The three admin levels**
 
   | | Fleet manager | System administrator | Super user |

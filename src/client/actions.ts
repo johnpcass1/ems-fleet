@@ -52,3 +52,12 @@ export const resetRolePermissions = (role: string) => after(api('POST', `/roles/
 export const setUserActive = (id: string, active: boolean) => api('POST', `/users/${id}/${active ? 'reactivate' : 'deactivate'}`);
 export const listBackups = () => api<{ backups: any[] }>('GET', '/admin/backups');
 export const backupStep = (force: boolean) => api<{ status: string; step?: number; of?: number }>('POST', '/admin/backups/step', { force });
+
+/* agencies (super user only) */
+export interface AgencyRow { id: string; name: string; active: boolean; isHome: boolean; users: number; vehicles: number; createdAt: string }
+export const listAgencies = () => api<{ agencies: AgencyRow[]; homeAgency: string }>('GET', '/agencies');
+export const createAgency = (o: { code: string; name: string; currency?: string; admin: { name: string; email: string; password: string } }) => api<{ id: string }>('POST', '/agencies', o);
+export const renameAgency = (id: string, name: string) => api('PATCH', `/agencies/${encodeURIComponent(id)}`, { name });
+export const setAgencyActive = (id: string, active: boolean) => api('POST', `/agencies/${encodeURIComponent(id)}/${active ? 'reactivate' : 'deactivate'}`);
+export const openAgency = (id: string) => api<{ agency: { id: string; name: string } }>('POST', `/agencies/${encodeURIComponent(id)}/open`);
+export const backToHomeAgency = () => api<{ agency: { id: string; name: string } }>('POST', '/agencies/back');

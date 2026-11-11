@@ -1,6 +1,6 @@
 /** The page frame behaviour: sidebar (collapse, mobile drawer), top bar (breadcrumbs, page actions), menus and wall display. */
 import { ROLES } from '../shared/constants';
-import { S, D, ui, hasSample } from './state';
+import { S, D, ui, hasSample, agencyName } from './state';
 import { $, $$, esc } from './util';
 import { icon } from './icons';
 import { initials } from './bits';
@@ -55,6 +55,12 @@ export function drawUserbar() {
       <button type="button" role="menuitem" data-act="change-password" id="chgPw">${icon('key')}Change password</button>
       <button type="button" role="menuitem" data-act="logout" id="logoutBtn">${icon('logout')}Log out</button></div></div>`;
 }
+/** The sidebar title is the agency's own name (the one on screen, which for a super user may not be their own). */
+export function drawBrand() {
+  const n = $('#brandName'), a = $('#brandLink');
+  if (n) n.textContent = agencyName();
+  if (a) a.setAttribute('aria-label', `${agencyName()}, fleet maintenance`);
+}
 export function drawSample() { $('#sampleChip').hidden = !hasSample(); }
 
 /* ---------- top bar: breadcrumbs and page actions ---------- */
@@ -85,7 +91,7 @@ export function placeActions() {
 }
 export function setPageTitle(r: string) {
   const h = $('#view h1');
-  document.title = (h && h.textContent ? h.textContent.trim() + ' - ' : '') + 'GEMA Fleet';
+  document.title = (h && h.textContent ? h.textContent.trim() + ' - ' : '') + (S.me?.agency ? `${S.me.agency.name} Fleet` : 'Fleet maintenance');
   void r;
 }
 

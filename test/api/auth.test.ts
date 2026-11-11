@@ -5,7 +5,7 @@ import { api, as, cookieOf, loginAs, makeUser, row, rows, E, PASSWORD } from './
 describe('login, logout, sessions', () => {
   it('logs in with the right password and sets a hardened cookie', async () => {
     const u = await makeUser('fleet_manager');
-    const r = await api('POST', '/api/auth/login', { body: { email: u.email.toUpperCase(), password: PASSWORD } });
+    const r = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email.toUpperCase(), password: PASSWORD } });
     expect(r.status).toBe(200);
     expect(r.json.user).toMatchObject({ email: u.email, role: 'fleet_manager', mustChangePassword: false });
     const sc = r.headers.get('set-cookie')!;
@@ -39,8 +39,8 @@ describe('login, logout, sessions', () => {
 
   it('rejects wrong passwords and unknown emails with the same message', async () => {
     const u = await makeUser('crew');
-    const a = await api('POST', '/api/auth/login', { body: { email: u.email, password: 'nope-nope-nope' } });
-    const b = await api('POST', '/api/auth/login', { body: { email: 'nobody@gema.test', password: 'nope-nope-nope' } });
+    const a = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: 'nope-nope-nope' } });
+    const b = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: 'nobody@gema.test', password: 'nope-nope-nope' } });
     expect(a.status).toBe(401);
     expect(b.status).toBe(401);
     expect(a.json.error).toBe(b.json.error);
@@ -60,17 +60,17 @@ describe('login, logout, sessions', () => {
   it('locks an email for 15 minutes after 10 wrong passwords', async () => {
     const u = await makeUser('crew');
     for (let i = 0; i < 10; i++) {
-      const r = await api('POST', '/api/auth/login', { body: { email: u.email, password: 'wrong-wrong-' + i } });
+      const r = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: 'wrong-wrong-' + i } });
       expect(r.status).toBe(401);
     }
     // even the right password is refused while locked
-    const locked = await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } });
+    const locked = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } });
     expect(locked.status).toBe(429);
     expect(locked.json.code).toBe('locked');
     expect(locked.json.error).toMatch(/minute/);
     // 16 minutes later it works again
     await E.DB.prepare('UPDATE login_attempts SET at_ms = at_ms - ?').bind(16 * 60e3).run();
-    const ok = await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } });
+    const ok = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } });
     expect(ok.status).toBe(200);
     // a successful login clears the failure count
     expect((await row('SELECT COUNT(*) n FROM login_attempts')).n).toBe(0);
@@ -78,15 +78,15 @@ describe('login, logout, sessions', () => {
 
   it('9 failures do not lock', async () => {
     const u = await makeUser('crew');
-    for (let i = 0; i < 9; i++) await api('POST', '/api/auth/login', { body: { email: u.email, password: 'wrong-wrong-' + i } });
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } })).status).toBe(200);
+    for (let i = 0; i < 9; i++) await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: 'wrong-wrong-' + i } });
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } })).status).toBe(200);
   });
 
   it('inactive users cannot log in and existing sessions stop working', async () => {
     const { user, cookie } = await as('crew');
     await E.DB.prepare('UPDATE users SET active = 0 WHERE id = ?').bind(user.id).run();
     expect((await api('GET', '/api/sync', { cookie })).status).toBe(401);
-    expect((await api('POST', '/api/auth/login', { body: { email: user.email, password: PASSWORD } })).status).toBe(401);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: user.email, password: PASSWORD } })).status).toBe(401);
   });
 
   it('expired sessions are refused; sessions slide forward when used after a while', async () => {
@@ -126,7 +126,7 @@ describe('CSRF and headers', () => {
   });
   it('login attempts also need the CSRF header', async () => {
     const u = await makeUser('crew');
-    const r = await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD }, noCsrf: true });
+    const r = await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD }, noCsrf: true });
     expect(r.status).toBe(403);
   });
 });
@@ -148,8 +148,8 @@ describe('passwords', () => {
     expect((await api('GET', '/api/sync', { cookie })).status).toBe(200);
     // old password no longer works, new one does
     const u = await row('SELECT email FROM users');
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } })).status).toBe(401);
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: 'a-brand-new-pass-1' } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } })).status).toBe(401);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: 'a-brand-new-pass-1' } })).status).toBe(200);
   });
   it('hashes with PBKDF2-SHA256, per-user salt, iterations recorded in the hash', async () => {
     const a = await makeUser('crew'); const b = await makeUser('crew');
@@ -162,7 +162,7 @@ describe('passwords', () => {
   it('upgrades an older hash to the configured iterations at login', async () => {
     const u = await makeUser('crew');
     await E.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(PASSWORD, 500), u.id).run();
-    expect((await api('POST', '/api/auth/login', { body: { email: u.email, password: PASSWORD } })).status).toBe(200);
+    expect((await api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email: u.email, password: PASSWORD } })).status).toBe(200);
     expect(((await row('SELECT password_hash h FROM users WHERE id = ?', u.id)).h as string)).toMatch(/^pbkdf2-sha256\$1000\$/);
   });
   it('writes login and logout to the audit log', async () => {

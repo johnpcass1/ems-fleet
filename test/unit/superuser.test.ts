@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSuperuserEmail } from '../../src/worker/env';
+import { isSuperuserEmail, isSuperuserAccount, homeAgency } from '../../src/worker/env';
 import { EDITABLE_KEYS, PERM, PERM_GROUPS, PERM_KEYS, can, canManageUser, effectivePerms, manageableRoles } from '../../src/shared/perm';
 
 describe('isSuperuserEmail', () => {
@@ -13,6 +13,19 @@ describe('isSuperuserEmail', () => {
     expect(isSuperuserEmail({}, 'john@example.com')).toBe(false);
     expect(isSuperuserEmail({ SUPERUSER_EMAILS: '' }, '')).toBe(false);
     expect(isSuperuserEmail({ SUPERUSER_EMAILS: ' , ' }, '')).toBe(false);
+  });
+});
+describe('isSuperuserAccount', () => {
+  it('needs the super email AND the home agency (default GEMA, set by SUPERUSER_AGENCY)', () => {
+    const env = { SUPERUSER_EMAILS: 'john@example.com' };
+    expect(homeAgency(env as any)).toBe('GEMA');
+    expect(isSuperuserAccount(env, 'john@example.com', 'GEMA')).toBe(true);
+    expect(isSuperuserAccount(env, 'john@example.com', 'B')).toBe(false);
+    expect(isSuperuserAccount(env, 'other@example.com', 'GEMA')).toBe(false);
+    const home = { SUPERUSER_EMAILS: 'john@example.com', SUPERUSER_AGENCY: ' hq ' };
+    expect(homeAgency(home)).toBe('HQ');
+    expect(isSuperuserAccount(home, 'JOHN@example.com', 'hq')).toBe(true);
+    expect(isSuperuserAccount(home, 'john@example.com', 'GEMA')).toBe(false);
   });
 });
 describe('permission model', () => {

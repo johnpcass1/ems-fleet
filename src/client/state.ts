@@ -2,14 +2,16 @@
 import { RANK, addDays, avgHoursPerDay, daysBetween, pmTaskStatus, projectDue, woTotal } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
 import { canOnVehicle, canWorkWO, can as canActor, type Actor } from '../shared/perm';
-import { esc, todayStr } from './util';
+import { esc, todayStr, setCurrencySource } from './util';
 
 export const COLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'issues', 'workOrders', 'parts', 'mechanics', 'settings', 'moves', 'people'];
 export const D: Record<string, Record<string, any>> = {};
 export const LST: Record<string, any[]> = {};
 COLS.forEach((c) => { D[c] = {}; LST[c] = []; });
 
-export interface Me extends Actor { mustChangePassword: boolean; isSuperuser?: boolean }
+export interface AgencyRef { id: string; name: string }
+/** `agency` is the agency whose data is on screen; `homeAgency` is the one the account belongs to (they differ only while a super user is viewing another agency). */
+export interface Me extends Actor { mustChangePassword: boolean; isSuperuser?: boolean; agency?: AgencyRef; homeAgency?: AgencyRef }
 /** Mutable app-wide flags. */
 export const S = {
   me: null as Me | null,
@@ -21,6 +23,16 @@ export const S = {
   idxVer: -1,
   IDX: {} as any,
 };
+
+/** Things the entry point (main.ts) provides to screens that cannot import it: switching agency clears the cached data and loads the new agency's. */
+export const hooks = { agencySwitched: async (_hash?: string) => {} };
+/** The last Agency ID typed at sign-in is remembered in this browser only (a convenience; the server never trusts it). */
+const LS_AGENCY = 'fleet-agency';
+export const lastAgency = () => { try { return localStorage.getItem(LS_AGENCY) || ''; } catch { return ''; } };
+export const rememberAgency = (code: string) => { try { localStorage.setItem(LS_AGENCY, code); } catch { /* storage may be blocked */ } };
+export const agencyName = () => S.me?.agency?.name || 'Fleet maintenance';
+/** True while a super user is looking at an agency other than their own. */
+export const viewingOther = () => !!S.me?.isSuperuser && !!S.me.agency && !!S.me.homeAgency && S.me.agency.id !== S.me.homeAgency.id;
 
 export const ui: any = {
   vehicleId: null, vtab: 'overview', period: 90, selIssues: [], drawer: null,
@@ -66,9 +78,12 @@ export const scheduleRender = () => renderHook();
 /** The server sends the person's current role and permissions with every sync. Returns true when something changed, so the screen is redrawn. */
 export function applyMe(m: any): boolean {
   if (!m || !S.me) return false;
-  const sig = (x: any) => JSON.stringify([x.role, x.baseIds, x.mechanicId, x.isSuperuser, x.perms]);
+  const sig = (x: any) => JSON.stringify([x.role, x.baseIds, x.mechanicId, x.isSuperuser, x.perms, x.agency, x.homeAgency]);
   if (sig(S.me) === sig(m)) return false;
-  Object.assign(S.me, { role: m.role, baseIds: m.baseIds, mechanicId: m.mechanicId, isSuperuser: !!m.isSuperuser, perms: m.perms });
+  const was = S.me.agency?.id;
+  Object.assign(S.me, { role: m.role, baseIds: m.baseIds, mechanicId: m.mechanicId, isSuperuser: !!m.isSuperuser, perms: m.perms, agency: m.agency ?? S.me.agency, homeAgency: m.homeAgency ?? S.me.homeAgency });
+  // Another tab of the same login switched agency: the lists cached for the old one are not valid any more (the sync answer itself is a full reload).
+  if (was && S.me.agency && was !== S.me.agency.id) void hooks.agencySwitched();
   return true;
 }
 export function applySync(res: any) {
@@ -101,9 +116,12 @@ export function idx() {
 export const nameOf = (id: any) => (id && D.people[id]?.name) || 'Someone';
 
 /* ---- lookups ---- */
-export const settings = () => ({ approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, ...(D.settings.main || {}) });
+/** The agency's one settings record (its id is the agency code; the server only ever sends the agency's own). */
+export const agencySettings = (): any => LST.settings[0] || {};
+setCurrencySource(() => agencySettings().currency);
+export const settings = () => ({ currency: 'GYD', approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, ...agencySettings() });
 /** Photo and PDF uploads switch (Setup). Anything but a real `true` (including a missing key) means OFF. */
-export const featureUploads = () => (D.settings.main || {}).features?.uploads === true;
+export const featureUploads = () => agencySettings().features?.uploads === true;
 /** 'on' = may upload; 'off' = the site-wide switch is off (super user only can change it); 'noperm' = switch is on but this person has no upload permission. */
 export const uploadState = (): 'on' | 'off' | 'noperm' => (!featureUploads() ? 'off' : can('upload') ? 'on' : 'noperm');
 export const uploadsOn = () => uploadState() === 'on';

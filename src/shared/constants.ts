@@ -38,3 +38,29 @@ export const ROLES: Record<Role, string> = {
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const UPLOAD_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 export const FM_OR_ADMIN: Role[] = ['system_admin', 'fleet_manager'];
+
+/** Currencies an agency can choose (Setup > Settings). Only the symbol and decimal places change; amounts are never converted. */
+export const CURRENCIES = [
+  { code: 'GYD', label: 'Guyana dollar', symbol: 'G$', decimals: 0 },
+  { code: 'USD', label: 'US dollar', symbol: '$', decimals: 2 },
+  { code: 'TTD', label: 'Trinidad and Tobago dollar', symbol: 'TT$', decimals: 2 },
+  { code: 'JMD', label: 'Jamaican dollar', symbol: 'J$', decimals: 2 },
+  { code: 'BBD', label: 'Barbados dollar', symbol: 'Bds$', decimals: 2 },
+  { code: 'XCD', label: 'East Caribbean dollar', symbol: 'EC$', decimals: 2 },
+  { code: 'CAD', label: 'Canadian dollar', symbol: 'CA$', decimals: 2 },
+  { code: 'EUR', label: 'Euro', symbol: '€', decimals: 2 },
+  { code: 'GBP', label: 'Pound sterling', symbol: '£', decimals: 2 },
+] as const;
+export type CurrencyCode = (typeof CURRENCIES)[number]['code'];
+export const CURRENCY_CODES = CURRENCIES.map((c) => c.code) as [CurrencyCode, ...CurrencyCode[]];
+export const DEFAULT_CURRENCY: CurrencyCode = 'GYD';
+/** The currency for a code; anything unknown or missing is the Guyana dollar (what every amount was before currencies existed). */
+export const currencyOf = (code: unknown) => CURRENCIES.find((c) => c.code === code) ?? CURRENCIES[0];
+/** An amount for people, e.g. "G$ 150,000" or "$ 1,234.50". */
+export function fmtMoney(n: unknown, code?: unknown): string {
+  const c = currencyOf(code);
+  const v = Number(n) || 0;
+  return c.symbol + ' ' + v.toLocaleString('en-US', { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals });
+}
+/** Round an amount to what the currency stores: whole G$, or cents. */
+export const roundMoney = (n: number, code?: unknown) => { const f = 10 ** currencyOf(code).decimals; return Math.round(n * f) / f; };

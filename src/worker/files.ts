@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './env';
-import { Tx, SEQ, first } from './db';
+import { Tx, SEQ, first, agencyRow } from './db';
 import { HttpError, bad, forbidden, notFound, conflict, uid } from './http';
 import { canOnVehicle, canWorkWO, FULL_READ } from '../shared/perm';
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPES } from '../shared/constants';
@@ -28,16 +28,16 @@ const UPLOADS_OFF_MSG = 'Photo and PDF uploads are turned off for now.';
 async function authorize(c: Context<AppEnv>, entityType: string, entityId: string) {
   const user = c.var.user;
   if (entityType === 'issue') {
-    const is = await first<any>(c.env.DB, 'SELECT vehicle_id FROM issues WHERE id = ?', entityId);
+    const is = await first<any>(c.env.DB, 'SELECT vehicle_id FROM issues WHERE agency_id = ? AND id = ?', user.agencyId, entityId); // another agency's problem is "no longer exists"
     if (!is) throw notFound('That problem no longer exists.');
-    const v = await first<any>(c.env.DB, 'SELECT base_id FROM vehicles WHERE id = ?', is.vehicle_id);
+    const v = await first<any>(c.env.DB, 'SELECT base_id FROM vehicles WHERE agency_id = ? AND id = ?', user.agencyId, is.vehicle_id);
     if (!canOnVehicle(user, 'report', v?.base_id)) throw forbidden();
     return;
   }
   if (entityType === 'work_order') {
-    const wo = await first<any>(c.env.DB, 'SELECT vehicle_id, mechanic_id FROM work_orders WHERE id = ?', entityId);
+    const wo = await first<any>(c.env.DB, 'SELECT vehicle_id, mechanic_id FROM work_orders WHERE agency_id = ? AND id = ?', user.agencyId, entityId);
     if (!wo) throw notFound('That work order no longer exists.');
-    const v = await first<any>(c.env.DB, 'SELECT base_id FROM vehicles WHERE id = ?', wo.vehicle_id);
+    const v = await first<any>(c.env.DB, 'SELECT base_id FROM vehicles WHERE agency_id = ? AND id = ?', user.agencyId, wo.vehicle_id);
     if (!(canWorkWO(user, { mechanicId: wo.mechanic_id }, v?.base_id) || canOnVehicle(user, 'createWO', v?.base_id))) throw forbidden();
     return;
   }
@@ -46,7 +46,7 @@ async function authorize(c: Context<AppEnv>, entityType: string, entityId: strin
 
 export async function uploadAttachment(c: Context<AppEnv>) {
   // Authoritative switch (Setup > Photo and PDF uploads). Checked before the body is read, so nothing reaches R2 while it is off.
-  if (!(await getSettings(c.env.DB)).features.uploads) return c.json({ error: 'uploads_disabled', code: 'uploads_disabled', message: UPLOADS_OFF_MSG }, 403);
+  if (!(await getSettings(c.env.DB, c.var.user.agencyId)).features.uploads) return c.json({ error: 'uploads_disabled', code: 'uploads_disabled', message: UPLOADS_OFF_MSG }, 403);
   if (!can(c.var.user, 'upload')) throw forbidden(); // the person's own permission, on top of the site-wide switch
   const len = Number(c.req.header('content-length') || 0);
   if (len > MAX_UPLOAD_BYTES + 64 * 1024) throw new HttpError(413, 'That file is over 20 MB.', 'too_large');
@@ -64,17 +64,17 @@ export async function uploadAttachment(c: Context<AppEnv>) {
   if (!real || !UPLOAD_TYPES.includes(real)) throw new HttpError(415, 'Only PDF, JPEG, PNG or WebP files can be attached.', 'unsupported_type');
   const declared = (file.type || '').toLowerCase().replace('image/jpg', 'image/jpeg');
   if (declared && declared !== 'application/octet-stream' && declared !== real) throw new HttpError(415, 'The file does not match its type. Only real PDF, JPEG, PNG or WebP files can be attached.', 'type_mismatch');
-  const n = await first<any>(c.env.DB, 'SELECT COUNT(*) AS n FROM attachments WHERE entity_type = ? AND entity_id = ?', entityType, entityId);
+  const n = await first<any>(c.env.DB, 'SELECT COUNT(*) AS n FROM attachments WHERE agency_id = ? AND entity_type = ? AND entity_id = ?', c.var.user.agencyId, entityType, entityId);
   if ((n?.n || 0) >= MAX_FILES_PER_ENTITY) throw conflict(`A record can hold up to ${MAX_FILES_PER_ENTITY} files.`);
 
   const id = uid('f');
-  const key = `attachments/${id}`;
+  const key = `attachments/${c.var.user.agencyId}/${id}`; // new files live under their agency's prefix (older files keep their old key, which is stored in the row)
   const name = safeFilename(file.name);
   await c.env.FILES.put(key, buf, { httpMetadata: { contentType: real } });
   const parentTable = entityType === 'issue' ? 'issues' : 'work_orders';
   const tx = new Tx(c.env.DB, c.var.user);
-  tx.run('INSERT INTO attachments (id, entity_type, entity_id, r2_key, name, content_type, size, created_at, updated_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)', id, entityType, entityId, key, name, real, buf.length, tx.at, tx.at, c.var.user.id);
-  tx.run(`UPDATE ${parentTable} SET seq=${SEQ}, updated_at=? WHERE id=?`, tx.at, entityId);
+  tx.run('INSERT INTO attachments (id, entity_type, entity_id, r2_key, name, content_type, size, created_at, updated_at, created_by, agency_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)', id, entityType, entityId, key, name, real, buf.length, tx.at, tx.at, c.var.user.id, tx.agency);
+  tx.run(`UPDATE ${parentTable} SET seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=?`, tx.at, entityId, tx.agency);
   tx.audit('attachment.add', entityType, entityId, null, { id, name, type: real, size: buf.length });
   try { await tx.commit(); } catch (e) { await c.env.FILES.delete(key).catch(() => {}); throw e; }
   return c.json({ ok: true, id, name, type: real, size: buf.length });
@@ -83,10 +83,10 @@ export async function uploadAttachment(c: Context<AppEnv>) {
 export async function downloadAttachment(c: Context<AppEnv>) {
   const user = c.var.user;
   if (!FULL_READ.includes(user.role)) throw forbidden();
-  const a = await first<any>(c.env.DB, 'SELECT * FROM attachments WHERE id = ?', c.req.param('id'));
+  const a = await agencyRow<any>(c.env.DB, 'attachments', user.agencyId, String(c.req.param('id'))); // another agency's file is "not found"
   if (!a) throw notFound();
   if (user.role === 'mechanic' && a.entity_type === 'work_order') {
-    const wo = await first<any>(c.env.DB, 'SELECT mechanic_id FROM work_orders WHERE id = ?', a.entity_id);
+    const wo = await first<any>(c.env.DB, 'SELECT mechanic_id FROM work_orders WHERE agency_id = ? AND id = ?', user.agencyId, a.entity_id);
     if (!wo || !user.mechanicId || wo.mechanic_id !== user.mechanicId) throw notFound();
   }
   const obj = await c.env.FILES.get(a.r2_key);
@@ -106,12 +106,12 @@ export async function downloadAttachment(c: Context<AppEnv>) {
 export async function deleteAttachment(c: Context<AppEnv>) {
   const user = c.var.user;
   if (!can(user, 'delAttach')) throw forbidden();
-  const a = await first<any>(c.env.DB, 'SELECT * FROM attachments WHERE id = ?', c.req.param('id'));
+  const a = await agencyRow<any>(c.env.DB, 'attachments', user.agencyId, String(c.req.param('id')));
   if (!a) throw notFound();
   const parentTable = a.entity_type === 'issue' ? 'issues' : 'work_orders';
   const tx = new Tx(c.env.DB, user);
-  tx.run('DELETE FROM attachments WHERE id = ?', a.id);
-  tx.run(`UPDATE ${parentTable} SET seq=${SEQ}, updated_at=? WHERE id=?`, tx.at, a.entity_id);
+  tx.run('DELETE FROM attachments WHERE id = ? AND agency_id = ?', a.id, tx.agency);
+  tx.run(`UPDATE ${parentTable} SET seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=?`, tx.at, a.entity_id, tx.agency);
   tx.audit('attachment.delete', a.entity_type, a.entity_id, { id: a.id, name: a.name }, null);
   await tx.commit();
   await c.env.FILES.delete(a.r2_key);

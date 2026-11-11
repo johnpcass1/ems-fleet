@@ -11,7 +11,10 @@ import { VIEWS, VT } from './registry';
 import { fileUrl, safeAsset, UP, pending, setProgressHook } from './files';
 import { canSeeActivity, backBtn, routeLabel, route, allowedRoutes } from './nav';
 
-export const emptyFleet=()=>emptyState('vehicles','No vehicles yet','Add the first ambulance to start tracking status, service and repairs.',can('editVehicle')?'<button class="btn primary" id="emptyAdd" data-act="add-vehicle">Add vehicle</button>':'<p class="small muted">Ask a fleet manager to add vehicles.</p>');
+export const emptyFleet=()=>{
+  if(!LST.bases.length)return emptyState('vehicles','Nothing set up yet','Start in Setup: add your bases (where vehicles are kept), then add your vehicles.',can('setup')?'<a class="btn primary" id="emptySetup" href="#setup">Go to Setup</a>':'<p class="small muted">Ask a fleet manager or system administrator to set up the bases and vehicles.</p>');
+  return emptyState('vehicles','No vehicles yet','Add the first ambulance to start tracking status, service and repairs.',can('editVehicle')?'<button class="btn primary" id="emptyAdd" data-act="add-vehicle">Add vehicle</button>':'<p class="small muted">Ask a fleet manager to add vehicles.</p>');
+};
 
 export function filterVehicles(f){
   const q=(f.q||'').trim().toLowerCase();

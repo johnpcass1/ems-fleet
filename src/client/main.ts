@@ -6,7 +6,7 @@ import '@fontsource/ibm-plex-mono/latin-500.css';
 import '@fontsource/ibm-plex-mono/latin-600.css';
 import './style.css';
 import { api, setAuthHook, setRouteGetter, startPolling, stopPolling, syncNow, syncIdle, resetSyncState } from './api';
-import { S, COLS, D, LST, loadUi } from './state';
+import { S, COLS, D, LST, loadUi, hooks, rememberAgency } from './state';
 import { $, toast, val } from './util';
 import { route } from './nav';
 import { render, showLogin, showForcedChange, changeFormHtml, clearChrome } from './shell';
@@ -16,6 +16,7 @@ import { showForgot, showForgotDone, showLinkProblem, showSetPassword, passwordP
 import { wireEvents, acts, FORMS } from './ui';
 import { showDrawer, closeDrawer } from './dom';
 import { resetUsersCache, syncUserForm } from './users-ui';
+import { resetAgenciesCache } from './agencies-ui';
 import { setProgressHook } from './files';
 import { refreshAtt } from './views-b';
 import { resetActivity } from './activity-ui';
@@ -28,6 +29,7 @@ function clearData() {
   COLS.forEach((c) => { D[c] = {}; LST[c] = []; });
   resetSyncState();
   resetUsersCache();
+  resetAgenciesCache();
   resetActivity();
   closeDrawer();
 }
@@ -39,6 +41,15 @@ function toLogin(message = '') {
   clearChrome();
   showLogin(message);
 }
+/** The super user opened another agency or came back: forget everything cached for the old one and load the new one from scratch. */
+hooks.agencySwitched = async (hash = '#board') => {
+  clearData();
+  if (!S.me) return;
+  $('#view').innerHTML = '<p class="muted">Loading fleet data...</p>';
+  if (location.hash !== hash) location.hash = hash;
+  await syncNow();
+  render();
+};
 async function startApp() {
   if (!S.me) return;
   document.body.classList.remove('loggedout');
@@ -61,11 +72,12 @@ document.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#lg-submit'), err = $('#lg-err');
     err.hidden = true;
-    const email = val('lg-email'), password = (document.getElementById('lg-pass') as HTMLInputElement).value;
-    if (!email || !password) { err.textContent = 'Enter your email and password.'; err.hidden = false; return; }
+    const agencyId = val('lg-agency').toUpperCase(), email = val('lg-email'), password = (document.getElementById('lg-pass') as HTMLInputElement).value;
+    if (!agencyId || !email || !password) { err.textContent = 'Enter your Agency ID, email and password.'; err.hidden = false; return; }
     btn.disabled = true;
     try {
-      const r = await api('POST', '/auth/login', { email, password });
+      const r = await api('POST', '/auth/login', { agencyId, email, password });
+      rememberAgency(agencyId);
       S.me = r.user;
       S.emailEnabled = !!r.emailEnabled;
       if (S.me!.mustChangePassword) showForcedChange(); else await startApp();
@@ -78,11 +90,12 @@ document.addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = $('#fg-err'), btn = $('#fg-submit');
     err.hidden = true;
-    const email = val('fg-email');
+    const agencyId = val('fg-agency').toUpperCase(), email = val('fg-email');
+    if (!agencyId) { err.textContent = 'Enter your Agency ID.'; err.hidden = false; return; }
     if (!/^\S+@\S+\.\S+$/.test(email)) { err.textContent = 'Enter a valid email address.'; err.hidden = false; return; }
     btn.disabled = true;
     try {
-      const r = await api('POST', '/auth/forgot', { email });
+      const r = await api('POST', '/auth/forgot', { agencyId, email });
       showForgotDone(r.message);
     } catch (ex: any) {
       err.textContent = ex.message || 'Could not send the link. Please try again.';
@@ -103,6 +116,7 @@ document.addEventListener('submit', async (e) => {
       S.me = r.user;
       S.emailEnabled = !!r.emailEnabled;
       history.replaceState(null, '', '/');
+      if (S.me?.agency) rememberAgency(S.me.agency.id);
       await startApp();
     } catch (ex: any) {
       if (ex.code && String(ex.code).startsWith('token_')) { showLinkProblem({ valid: false, reason: String(ex.code).slice(6) as any, purpose: linkPurpose }); return; }

@@ -1,10 +1,10 @@
 /** The page frame: nav, banners, the current screen, and the login / change-password screens. */
-import { D, S, COLS, hasSample, setRenderHook, role } from './state';
+import { D, S, COLS, hasSample, setRenderHook, role, viewingOther, lastAgency } from './state';
 import { $, $$, esc, toast } from './util';
 import { VIEWS } from './registry';
 import { route, setRenderFn } from './nav';
 import { brandHtml } from './bits';
-import { drawNav, drawUserbar, drawSample, drawCrumbs, placeActions, setPageTitle, applyChrome, setLayoutRender, wallOn } from './layout';
+import { drawNav, drawUserbar, drawBrand, drawSample, drawCrumbs, placeActions, setPageTitle, applyChrome, setLayoutRender, wallOn } from './layout';
 import { refreshDrawer } from './drawers';
 import { api } from './api';
 import './views-a';
@@ -13,6 +13,7 @@ import './views-c';
 import './users-ui';
 import './roles-ui';
 import './activity-ui';
+import './agencies-ui';
 
 let queued = false;
 export function scheduleRenderSoon() { if (queued) return; queued = true; setTimeout(() => { queued = false; render(); }, 16); }
@@ -23,11 +24,13 @@ export function render() {
   const r = route();
   applyChrome();
   drawNav();
+  drawBrand();
   drawUserbar();
   drawSample();
   drawCrumbs(r);
   let b = '';
   if (S.connFailed) b += '<div class="banner bad" role="status">Can’t reach the server right now. Showing the last data received.</div>';
+  if (viewingOther() && S.me) b += `<div class="banner info" id="agencyBanner" role="status"><span>Viewing <b>${esc(S.me.agency!.name)}</b> (${esc(S.me.agency!.id)}) as the super user.</span><button class="btn sm" type="button" data-act="agency-back" id="agencyBack">Back to ${esc(S.me.homeAgency!.name)}</button></div>`;
   if (hasSample()) b += '<div class="banner info mobonly" role="status">Sample data is loaded</div>';
   $('#banners').innerHTML = b;
   const view = $('#view'), ae: any = document.activeElement;
@@ -59,15 +62,18 @@ export function clearChrome() {
 export function showLogin(message = '') {
   document.body.classList.add('loggedout');
   document.body.classList.remove('wallmode', 'navopen');
-  $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb"><h1>Log in</h1><p class="muted small">GEMA Fleet, the fleet maintenance system for the Guyana EMS ambulance program.</p>
+  document.title = 'Fleet maintenance';
+  const last = lastAgency();
+  $('#view').innerHTML = `<div class="loginwrap">${brandHtml()}<div class="panel"><div class="pb"><h1>Fleet maintenance</h1><p class="muted small">Log in with your Agency ID, email and password.</p>
     ${message ? `<div class="warnbox" role="status">${esc(message)}</div>` : ''}
     <form id="loginForm" novalidate>
+      <label class="f"><span class="l">Agency ID</span><input id="lg-agency" name="agency" type="text" placeholder="GEMA" value="${esc(last)}" autocomplete="organization" required autocapitalize="characters" spellcheck="false" maxlength="40"></label>
       <label class="f"><span class="l">Email</span><input id="lg-email" name="email" type="email" autocomplete="username" required autocapitalize="off" spellcheck="false"></label>
       <label class="f"><span class="l">Password</span><input id="lg-pass" name="password" type="password" autocomplete="current-password" required></label>
       <div id="lg-err" class="warnbox bad" role="alert" hidden></div>
       <button class="btn primary block" type="submit" id="lg-submit">Log in</button>
     </form><p class="small muted" style="margin:14px 0 0">${S.emailEnabled ? '<a href="/" data-act="forgot" id="forgotLink">Forgot password?</a>' : 'Forgot your password? Ask your fleet manager or the system administrator to set a new one.'}</p></div></div></div>`;
-  $('#lg-email').focus();
+  $(last ? '#lg-email' : '#lg-agency').focus();
 }
 export function showForcedChange() {
   document.body.classList.add('loggedout');
