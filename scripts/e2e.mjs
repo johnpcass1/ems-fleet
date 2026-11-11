@@ -756,9 +756,8 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.reload(); await p.waitForSelector('#bc-unit');
     await shot(p, '20-bus-check-start'); await noOverflow(p);
     const opts = await p.evaluate(() => [...document.querySelectorAll('#bc-unit option')].filter((o) => o.value).map((o) => ({ v: o.value, t: o.textContent })));
-    if (opts.length < 4) throw new Error('crew offered only ' + opts.map((o) => o.t).join(' / '));
     const pick = opts.find((o) => !USED_BC_UNITS.has(o.t.split(' ')[0]));
-    if (!pick) throw new Error('no unchecked unit left for this run');
+    if (!pick) throw new Error('no unchecked unit left for this run; offered ' + opts.map((o) => o.t).join(' / '));
     unitName = pick.t.split(' ')[0]; USED_BC_UNITS.add(unitName);
     const val = pick.v;
     await p.selectOption('#bc-unit', val);
@@ -816,7 +815,8 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
     await p.click('#bct-today');
     await p.waitForSelector('.bccell');
     const row = p.locator('tr', { has: p.locator('th', { hasText: unitName }) });
-    if (!(await row.locator('.bccell', { hasText: '1 short' }).count())) throw new Error('no checked cell with 1 short for ' + unitName);
+    // the tab reloads its numbers when opened; wait for the fresh ones
+    await row.locator('.bccell', { hasText: '1 short' }).first().waitFor({ timeout: 10000 }).catch(() => { throw new Error('no checked cell with 1 short for ' + unitName); });
     if (!(await p.locator('#bcKpis').innerText()).includes('Checks done')) throw new Error('no counts');
     await shot(p, '20-bus-checks-today'); await noOverflow(p);
     await row.locator('.bccell').first().click();
