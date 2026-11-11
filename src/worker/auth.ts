@@ -128,11 +128,14 @@ export async function blockUntilPasswordChanged(c: Context<AppEnv>, next: Next) 
 }
 
 /* ---------- login throttling ---------- */
-export async function lockedUntil(db: D1Database, email: string): Promise<number | null> {
+/** Wrong passwords in the last lock window (capped at LOCK_FAILS) and, when that reaches the limit, when the lock ends. One read. */
+export async function loginState(db: D1Database, email: string): Promise<{ fails: number; lockedUntil: number | null }> {
   const since = Date.now() - LOCK_MS;
   const rows = await all<{ at_ms: number }>(db, 'SELECT at_ms FROM login_attempts WHERE email = ? AND ok = 0 AND at_ms > ? ORDER BY at_ms DESC LIMIT ?', email, since, LOCK_FAILS);
-  if (rows.length >= LOCK_FAILS) return rows[0].at_ms + LOCK_MS;
-  return null;
+  return { fails: rows.length, lockedUntil: rows.length >= LOCK_FAILS ? rows[0].at_ms + LOCK_MS : null };
+}
+export async function lockedUntil(db: D1Database, email: string): Promise<number | null> {
+  return (await loginState(db, email)).lockedUntil;
 }
 export async function recordAttempt(db: D1Database, email: string, ok: boolean) {
   const now = nowISO();

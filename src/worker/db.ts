@@ -1,5 +1,6 @@
 import { conflict, nowISO } from './http';
 import type { Actor } from '../shared/perm';
+import { sanitizeAudit } from '../shared/activity';
 
 /** The change counter value for the batch being built. Every row written in the batch gets this `seq`. */
 export const SEQ = '(SELECT v FROM counter WHERE id = 1)';
@@ -28,17 +29,11 @@ export class Tx {
   tomb(coll: string, id: string) {
     return this.run(`INSERT OR REPLACE INTO tombstones (coll, id, seq) VALUES (?, ?, ${SEQ})`, coll, id);
   }
-  /** Write an audit row (inside the same batch). */
+  /** Write an audit row (inside the same batch). The sanitiser removes anything that looks like a password, hash, token or session. */
   audit(action: string, entityType: string, entityId: string | null, before: unknown, after: unknown) {
     const a = this.actor;
-    return this.run(
-      `INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, before_json, after_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      this.at, a?.id ?? null, a?.email ?? null, action, entityType, entityId,
-      before === undefined || before === null ? null : JSON.stringify(before),
-      after === undefined || after === null ? null : JSON.stringify(after),
-      this.at, this.at,
-    );
+    this.stmts.push(auditStmt(this.db, { at: this.at, userId: a?.id ?? null, email: a?.email ?? null, action, entityType, entityId, before, after }));
+    return this;
   }
   async commit() {
     try {
@@ -52,6 +47,21 @@ export class Tx {
       throw e;
     }
   }
+}
+
+export interface AuditInput { at: string; userId: string | null; email: string | null; action: string; entityType: string; entityId: string | null; before?: unknown; after?: unknown }
+/**
+ * THE way an audit row is written (the Tx helper and the sign-in code both use it), so the sanitiser always runs:
+ * no password, password hash, session or token (or reset / invite link secret) can reach audit_log through here.
+ */
+export function auditStmt(db: D1Database, a: AuditInput): D1PreparedStatement {
+  const js = (x: unknown) => (x === undefined || x === null ? null : JSON.stringify(sanitizeAudit(x)));
+  return db
+    .prepare(
+      `INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, before_json, after_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(a.at, a.userId, a.email, a.action, a.entityType, a.entityId, js(a.before), js(a.after), a.at, a.at);
 }
 
 /** Run a read query and return rows. */
