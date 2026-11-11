@@ -37,7 +37,16 @@ For whoever looks after GEMA Fleet next.
 | Review sample data | Once | Setup screen, **Remove sample data**, if any was loaded |
 | Review automatic update pull requests | Weekly (Mondays) | GitHub, **Pull requests**: Dependabot opens them; merge when the checks are green. Security fixes can arrive any day |
 
-Every change a person makes is recorded in the `audit_log` table (who, what, before and after). The super user and system administrators can read it from `GET /api/admin/audit` while logged in.
+### Activity history (who changed what, and when)
+
+Every change a person makes, and every sign-in, is recorded in the `audit_log` table (who, when, what, before and after). The **super user and system administrators** read it in the app at **Admin > Activity history** (`#activity`); nobody else sees the link, and the API answers 403 to everyone else (the rule is `isSuper || role === 'system_admin'`, in `src/worker/index.ts`).
+
+- **What you see.** Newest first, grouped by day (Guyana time), 50 at a time with **Load more**. Each row: time, person (their *current* name and role; deactivated people are marked), and a plain-English sentence ("Moved GEMA-03 from HQ to Linden", "Changed Jane Doe's role from Crew to Base supervisor", "Failed sign-in for jdoe@example.org"). Unit, work order and person names are links. **What changed** on a row shows the fields that differ, before and after (dates as DD/MM/YYYY, G$ amounts, base names, role labels, yes/no).
+- **Filters.** Search (action, item id, person name or email, unit name, work order number), Person, Type, From/To dates (Guyana calendar days). Types: Vehicles, Problems, Work orders, Preventive maintenance, Parts & mechanics, People & permissions, Settings & features, Sign-ins (includes password changes and resets), Backups. **Export CSV** downloads the current filtered view (newest 5,000 rows; the screen says when the limit was hit; narrow the dates for the rest).
+- **Shortcuts.** Users > **View activity** opens it for one person; a unit's History tab has **View activity for this unit**.
+- **What is recorded.** Every write in the app (units, readings, problems, work orders and their lines, parts, mechanics, bases, PM programs, settings, features, roles and permissions, users, files, backups, sample-data removal) and sign-ins: `auth.login`, `auth.logout`, `auth.login_failed` (the email address that was tried, and the account if it exists; **never the password**; text that is not an email address is not kept at all), `auth.locked` (written once, by the 10th wrong password), `auth.change_password`, `auth.set_password`, `auth.forgot_password`. Attempts made while an account is already locked are not logged (they would only fill the table).
+- **Where the code is.** One table maps actions to Types and one function describes each action in `src/shared/activity.ts` (unit tested); the query side is `src/worker/activity.ts`; the screen is `src/client/activity-ui.ts`. **Adding a new kind of audited change:** call `tx.audit('thing.verb', 'thing', id, before, after)`, then add a prefix to `CATEGORY_RULES` and a sentence to `DESCRIBE` in `src/shared/activity.ts`. Until you do, the row shows as "Other" with a generic sentence ("Updated ...") and is still found by search. The unit test lists every action the Worker writes and fails if one has no Type.
+- **Size.** Rows are small (one per write); a year of normal use is tens of thousands of rows. Migration `0004_activity_indexes.sql` adds the indexes the screen needs (person, item, date). There is no automatic clean-up; the nightly backup includes the table.
 
 ## Where things live
 
@@ -45,6 +54,7 @@ Every change a person makes is recorded in the `audit_log` table (who, what, bef
 - Who is allowed to do what: `src/shared/perm.ts` (defaults and the effective-permission rule); role changes: `src/worker/roles.ts`, `src/client/roles-ui.ts`
 - PM due dates, availability, costs: `src/shared/pure.ts` (covered by unit tests)
 - Screens: `src/client/views-*.ts`; forms and buttons: `src/client/ui.ts`
+- Activity history (audit log screen): `src/shared/activity.ts`, `src/worker/activity.ts`, `src/client/activity-ui.ts`
 - Database tables: `migrations/`
 
 ## Choices worth knowing

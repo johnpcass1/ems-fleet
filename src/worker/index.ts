@@ -2,9 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv, Env } from './env';
 import { HttpError, bad, forbidden, nowISO, parse, zId } from './http';
-import { Tx, SEQ, all, first } from './db';
+import { Tx, SEQ, all, first, auditStmt } from './db';
+import { activityCsv, listActivity } from './activity';
 import {
-  COOKIE, actorFrom, loadRolePerms, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, lockedUntil, passwordProblem,
+  COOKIE, LOCK_FAILS, LOCK_MS, actorFrom, loadRolePerms, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, loginState, passwordProblem,
   recordAttempt, requireAuth, verifyPassword,
 } from './auth';
 import { syncSince } from './sync';
@@ -54,7 +55,8 @@ const loginIn = z.object({ email: z.string().trim().toLowerCase().max(200), pass
 
 app.post('/api/auth/login', async (c) => {
   const i = parse(loginIn, await c.req.json().catch(() => ({})));
-  const lock = await lockedUntil(c.env.DB, i.email);
+  const state = await loginState(c.env.DB, i.email);
+  const lock = state.lockedUntil;
   if (lock) {
     const mins = Math.max(1, Math.ceil((lock - Date.now()) / 60000));
     throw new HttpError(429, `Too many wrong passwords. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`, 'locked');
@@ -71,6 +73,13 @@ app.post('/api/auth/login', async (c) => {
   }
   if (!ok) {
     await recordAttempt(c.env.DB, i.email, false);
+    // Sign-in history: the address that was tried (never the password; text that is not an email address, such as a password typed
+    // into the wrong box, is not kept at all) and the account it belongs to, if there is one. The failure that starts a lock also writes "locked".
+    const at = nowISO();
+    const tried = /^\S+@\S+\.\S+$/.test(i.email) ? i.email : '(not an email address)';
+    const rows = [auditStmt(c.env.DB, { at, userId: u?.id ?? null, email: tried, action: 'auth.login_failed', entityType: 'user', entityId: u?.id ?? null })];
+    if (state.fails + 1 >= LOCK_FAILS) rows.push(auditStmt(c.env.DB, { at, userId: u?.id ?? null, email: tried, action: 'auth.locked', entityType: 'user', entityId: u?.id ?? null, after: { minutes: LOCK_MS / 60000, fails: LOCK_FAILS } }));
+    await c.env.DB.batch(rows);
     throw new HttpError(401, 'Wrong email or password.', 'bad_login');
   }
   await recordAttempt(c.env.DB, i.email, true);
@@ -79,7 +88,7 @@ app.post('/api/auth/login', async (c) => {
   // If the iteration setting was raised, upgrade this user's hash while we have the password.
   const want = iterationsFor(c.env);
   if (iterations < want) stmts.push(c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(i.password, want), u.id));
-  stmts.push(c.env.DB.prepare('INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(now, u.id, u.email, 'auth.login', 'user', u.id, now, now));
+  stmts.push(auditStmt(c.env.DB, { at: now, userId: u.id, email: u.email, action: 'auth.login', entityType: 'user', entityId: u.id }));
   await c.env.DB.batch(stmts);
   await createSession(c, u.id);
   return c.json({ user: publicMe({ ...actorFrom(c.env, u, await loadRolePerms(c.env.DB)), mustChangePassword: u.must_change_password }), emailEnabled: emailEnabled(c.env) });
@@ -116,7 +125,7 @@ authed.post('/auth/logout', async (c) => {
   const now = nowISO();
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(u.sessionId),
-    c.env.DB.prepare('INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(now, u.id, u.email, 'auth.logout', 'user', u.id, now, now),
+    auditStmt(c.env.DB, { at: now, userId: u.id, email: u.email, action: 'auth.logout', entityType: 'user', entityId: u.id }),
   ]);
   clearSessionCookie(c);
   return c.json({ ok: true });
@@ -227,11 +236,15 @@ api.get('/admin/backups/:date', async (c) => {
   if (!o) throw new HttpError(404, 'No backup for that date.', 'not_found');
   return new Response(o.body, { headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="gema-fleet-${date}.json.gz"`, 'Content-Length': String(o.size), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 });
-api.get('/admin/audit', async (c) => {
-  if (!c.var.user.isSuper && c.var.user.role !== 'system_admin') throw forbidden();
-  const lim = Math.min(500, Math.max(1, Number(c.req.query('limit') || 100)));
-  const rows = await all(c.env.DB, 'SELECT id, at, user_email, action, entity_type, entity_id, before_json, after_json FROM audit_log ORDER BY id DESC LIMIT ?', lim);
-  return c.json({ rows });
+/* activity history (super user and system administrators; everyone else 403) */
+const needActivity = (c: any) => { if (!c.var.user.isSuper && c.var.user.role !== 'system_admin') throw forbidden(); };
+const activityList = async (c: any) => { needActivity(c); return c.json(await listActivity(c.env, new URL(c.req.url).searchParams)); };
+api.get('/admin/activity', activityList);
+api.get('/admin/audit', activityList); // the original path, same answer
+api.get('/admin/activity/export', async (c) => {
+  needActivity(c);
+  const r = await activityCsv(c.env, new URL(c.req.url).searchParams);
+  return new Response(r.body, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="gema-fleet-activity-${r.date}.csv"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Activity-Rows': String(r.rows), 'X-Activity-Truncated': r.truncated ? '1' : '0', 'Access-Control-Expose-Headers': 'X-Activity-Rows, X-Activity-Truncated' } });
 });
 
 authed.route('/', api);

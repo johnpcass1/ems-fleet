@@ -9,7 +9,7 @@ import { icon } from './icons';
 import { wallPressed } from './layout';
 import { VIEWS, VT } from './registry';
 import { fileUrl, safeAsset, UP, pending, setProgressHook } from './files';
-import { backBtn, routeLabel, route, allowedRoutes } from './nav';
+import { canSeeActivity, backBtn, routeLabel, route, allowedRoutes } from './nav';
 
 export const emptyFleet=()=>emptyState('vehicles','No vehicles yet','Add the first ambulance to start tracking status, service and repairs.',can('editVehicle')?'<button class="btn primary" id="emptyAdd" data-act="add-vehicle">Add vehicle</button>':'<p class="small muted">Ask a fleet manager to add vehicles.</p>');
 
@@ -176,7 +176,7 @@ VT.history=function(v){
   LST.moves.filter(m=>m.vehicleId===v.id).forEach(m=>items.push({at:m.at,kind:'move',title:`Moved from ${baseName(m.fromBaseId)} to ${baseName(m.toBaseId)}`,detail:[m.reason,m.tempUntil?'Temporary until '+fmtDate(m.tempUntil):''].filter(Boolean).join(' · ')}));
   const f=ui.f.hist,list=items.filter(x=>f==='all'||x.kind===f).sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));
   const KL={status:'Status',issue:'Problem',wo:'Work order',meter:'Meter',move:'Moved'};
-  return `<div class="panel"><div class="ph"><h2>History</h2><div class="filters" style="margin:0"><div class="f2"><label for="f-hist">Show</label>${selHtml('f-hist',[['all','Everything'],['status','Status changes'],['issue','Problems'],['wo','Work orders'],['meter','Meter readings'],['move','Moves']],f,'data-filter="hist"')}</div></div></div>
+  return `<div class="panel"><div class="ph"><h2>History</h2>${canSeeActivity()?`<button class="btn sm" data-act="activity-for" data-type="vehicle" data-id="${esc(v.id)}" id="vaAct">${icon('activity')}View activity for this unit</button>`:''}<div class="filters" style="margin:0"><div class="f2"><label for="f-hist">Show</label>${selHtml('f-hist',[['all','Everything'],['status','Status changes'],['issue','Problems'],['wo','Work orders'],['meter','Meter readings'],['move','Moves']],f,'data-filter="hist"')}</div></div></div>
   <ul class="tl">${list.map(x=>`<li><div><div class="when">${fmtDT(x.at)}</div><div class="kind">${KL[x.kind]}</div></div><div><b>${esc(x.title)}</b><div class="small muted">${esc(x.detail||'')}</div></div></li>`).join('')||'<li class="muted">Nothing recorded yet.</li>'}</ul></div>`;
 };
 VT.costs=function(v){

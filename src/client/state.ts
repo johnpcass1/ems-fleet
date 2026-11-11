@@ -24,7 +24,7 @@ export const S = {
 
 export const ui: any = {
   vehicleId: null, vtab: 'overview', period: 90, selIssues: [], drawer: null,
-  f: { board: { base: '', status: '', q: '' }, vehicles: { base: '', status: '', q: '' }, pm: { base: '' }, issues: { status: 'active', severity: '', base: '' }, wo: { status: 'active', view: 'table' }, hist: 'all' },
+  f: { board: { base: '', status: '', q: '' }, vehicles: { base: '', status: '', q: '' }, pm: { base: '' }, issues: { status: 'active', severity: '', base: '' }, wo: { status: 'active', view: 'table' }, hist: 'all', activity: { q: '', userId: '', type: '', from: '', to: '', entityType: '', entityId: '' } },
 };
 const LS_KEY = 'gema-fleet-ui-v1';
 /** Filters and the last unit are remembered per browser (never anything that matters). */

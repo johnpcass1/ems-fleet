@@ -4,7 +4,7 @@ import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { AppEnv } from './env';
 import { HttpError, bad, parse, nowISO } from './http';
-import { Tx, SEQ, first } from './db';
+import { Tx, SEQ, first, auditStmt } from './db';
 import { COOKIE, actorFrom, createSession, hashPassword, iterationsFor, passwordProblem, sha256Hex } from './auth';
 import { emailEnabled, getMailer, resetMessage, setPasswordLink } from './mail';
 import { lookupToken, newToken, retireUnused } from './tokens';
@@ -46,7 +46,7 @@ export async function forgotPassword(c: Context<AppEnv>) {
       if (!u || !u.active) return;
       const t = await newToken(env.DB, u.id, 'reset', null);
       const at = nowISO();
-      await env.DB.batch([...t.stmts, env.DB.prepare('INSERT INTO audit_log (at, user_id, user_email, action, entity_type, entity_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').bind(at, u.id, u.email, 'auth.forgot_password', 'user', u.id, at, at)]);
+      await env.DB.batch([...t.stmts, auditStmt(env.DB, { at, userId: u.id, email: u.email, action: 'auth.forgot_password', entityType: 'user', entityId: u.id })]);
       const r = await getMailer(env)!.send(resetMessage({ to: u.email, name: u.name, link: setPasswordLink(env, t.token) }));
       if (!r.ok) { await retireUnused(env.DB, u.id, 'reset'); console.error('Reset email failed:', r.reason); }
     } catch (e) { console.error('forgot-password job failed', e); }

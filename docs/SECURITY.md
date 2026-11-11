@@ -33,7 +33,7 @@
 - **Cross-site request forgery:** every change request must carry the header `X-Requested-With: gema-fleet` and, when the browser sends an `Origin`, it must match the site. A different website cannot add that header to a request without permission.
 - **Input checks:** every API input is validated (types, lengths, allowed values) before use. Queries use bound parameters only.
 - **Authorisation** is decided on the server for every request, using the role, bases and linked mechanic stored with the account, never values sent by the browser. Base supervisors and crew only reach their own bases' units. Mechanics only see and work on work orders assigned to them, including their files. The dispatcher receives a reduced feed with no parts, costs or notes.
-- **Audit log:** every write adds a row (who, when, what, before and after) in the same database batch as the change.
+- **Audit log:** every write adds a row (who, when, what, before and after) in the same database batch as the change. See *Audit log and Activity history* below.
 
 ## Permissions, the super user and features
 
@@ -49,12 +49,19 @@
   | Grant Manage people / Change setup | No | No | Yes |
   | Backups (list, download, run) | 403 | 403 | Yes |
   | Features (`PUT /api/features`) | 403 | 403 | Yes |
-  | Read the audit log | No | Yes | Yes |
+  | Read the audit log (Activity history) | No | Yes | Yes |
 
 - Rules for both permission editors, enforced on the server: nobody edits their own permissions or role; an editor can only switch on a permission they hold themselves; only the super user can grant Manage people or Change setup; **Backups can never be granted** to a role or a person (the request is rejected with 400, the key is not in either editor, and any stored value for it is ignored when permissions are computed). Backups (the panel and the list, download and run endpoints) are decided by the super-user check alone. The nightly backup is a scheduled job and does not depend on anyone's permissions. A super user's account can be changed only by a super user, and nothing stored in a role or person record can reduce the super user's access. Every role and person permission change is audit-logged with before and after (`role.permissions`, `role.reset`, `user.permissions`).
 - `rolePerms` is part of the settings record that is synced to browsers (it holds no secrets; the dispatcher's reduced feed omits it). Like `features`, it is written only through its own endpoints; the ordinary settings save ignores it.
 - Site-wide **features** (currently Photo and PDF uploads) are changed only through `PUT /api/features`, which answers 403 to everyone but the super user. The ordinary settings save ignores `features` (and `rolePerms`), so a crafted request from a fleet manager or system administrator cannot change it.
 - Anyone who can edit the code or Cloudflare variables can change who is the super user; protect the repository and the Cloudflare account accordingly.
+
+## Audit log and Activity history
+
+- **What is logged.** Every write (who, when, action, item, before and after as JSON) and sign-in events: `auth.login`, `auth.logout`, `auth.login_failed`, `auth.locked`, `auth.change_password`, `auth.set_password`, `auth.forgot_password`. A failed sign-in stores the **email address that was tried** (lower-cased) and the account's id when that address has an account. The **password is never stored**, and if what was typed in the email box does not look like an email address (people sometimes paste their password there) it is replaced by "(not an email address)". The failure that triggers a lockout also writes `auth.locked` once; attempts refused during a lock write nothing.
+- **Nothing secret can reach the log.** Every audit row is written through one function (`auditStmt` in `src/worker/db.ts`, used by `Tx.audit` and by the sign-in code), which first runs the **sanitiser** (`sanitizeAudit` in `src/shared/activity.ts`). It removes, at any depth and inside arrays, every key whose name contains *password*, *passwd*, *passphrase*, *secret*, *token* (so also `token_hash`, `resetToken`), *session*, *hash*, *cookie*, *authorization*, *credential* or *api key*, and blanks any `#t=...` invite/reset link secret inside text. It does not depend on callers remembering. The same sanitiser runs again when rows are read, so an older row is also cleaned on the way out. Tests: `test/unit/activity.test.ts` and `test/api/activity.test.ts` (including a caller that passes every kind of secret, and the real sign-in, set-password and change-password flows). Rule for developers: never put a secret in an audit payload; if a new field name contains one of the words above it is dropped.
+- **Who can read it.** The super user and system administrators only (`isSuper || role === 'system_admin'`): `GET /api/admin/activity` (also reachable as `GET /api/admin/audit`) and `GET /api/admin/activity/export` answer **403** to everyone else, including fleet managers, and 401 when logged out. The Activity history screen and its sidebar link are hidden for everyone else. The log is **read-only through the app**: nothing edits or deletes rows. It contains people's names, email addresses and the email addresses typed into failed sign-ins (which may be anyone's), so treat exports like personal data: the CSV is built on request, sent with `Cache-Control: private, no-store`, and is limited to the newest 5,000 rows. Text that starts with `=`, `+`, `-` or `@` in an export is prefixed with an apostrophe so a spreadsheet will not run it as a formula.
+- **Volume.** Failed sign-ins for unknown addresses each add a row; the per-address lockout does not limit a flood of *different* addresses. The table is indexed (`0004_activity_indexes.sql`) so reading stays cheap, and rows are small, but there is no automatic purge; if the table ever becomes large, export it and delete old rows in the D1 console.
 
 ## Files
 

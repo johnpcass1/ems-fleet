@@ -28,6 +28,7 @@ Roles are only the starting point, and there are three levels of administrator:
 | Grant Manage people or Change setup | No | No | Yes |
 | Backups (panel, list, download, run) | No | No | Yes (the nightly backup runs for everyone) |
 | Features (Photo and PDF uploads) | No | No | Yes |
+| **Activity history** (who changed what, and when, including sign-ins) | No | Yes | Yes |
 
 The **super user** is set in code (see [docs/HANDOVER.md](docs/HANDOVER.md)) and has every permission. The **Roles & permissions** screen (Admin group in the sidebar) is a matrix of what each role can do by default, with a "Changed" marker against the built-in defaults, **Reset to default** and a confirmation that says how many people a change affects. A person's own changes beat their role's, which beat the built-in default. Each switch in the per-person drawer says whether it comes from the role default, a role change or a personal change. **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
 
@@ -76,4 +77,4 @@ docs/         Deploy, hand-over, security and restore guides
 
 How data reaches the browser: the browser asks `GET /api/sync?since=<cursor>` about every 20 seconds (15 seconds on the Dispatch screen) and whenever the window is focused again. The server returns only what changed since the cursor, including deletions. Every change goes through an action endpoint (for example "start this work order") where the server checks the person's role, validates the input, applies all related changes in one database batch, and writes an audit log row.
 
-The website's look and behaviour is the same as the prototype. Differences: there is a login page, a Users screen, a Roles & permissions screen, a Backups panel (super user only), no role switcher, and no "Load sample data" button (administrators can still "Remove sample data").
+The website's look and behaviour is the same as the prototype. Differences: there is a login page, a Users screen, a Roles & permissions screen, an **Activity history** screen (Admin group; super user and system administrators: searchable, filterable by person, type and date, with before and after for every change, sign-ins and CSV export), a Backups panel (super user only), no role switcher, and no "Load sample data" button (administrators can still "Remove sample data").

@@ -17,6 +17,7 @@ import * as A from './actions';
 import { setVehicleStatus, recordReading, acceptReading, submitIssue, dismissIssue, createWorkOrder, addLine, removeLine, patchWo, woAction, moveUnits, removeSample, saveVehicle, savePart, receivePart, saveMech, saveBase, saveProgram, saveSettings, saveFeatures } from './actions';
 import { userForms, userActs, syncPermsForm } from './users-ui';
 import { roleActs, roleCellChanged, rolePick } from './roles-ui';
+import { activityActs } from './activity-ui';
 
 export const FORMS:Record<string,any>={};
 function saveBlob(name,blob){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
@@ -378,4 +379,5 @@ window.addEventListener('hashchange',()=>{
 Object.assign(FORMS,userForms);
 Object.assign(acts,userActs);
 Object.assign(acts,roleActs);
+Object.assign(acts,activityActs);
 Object.assign(acts,layoutActs);
