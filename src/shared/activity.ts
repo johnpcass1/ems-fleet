@@ -3,7 +3,7 @@
  * Shared by the Worker (filters, CSV export, the sanitiser) and the browser (sentences, "What changed"), so both agree.
  * No DOM, no globals.
  */
-import { ROLES, STATUS, WO_STATUS, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD } from './constants';
+import { ROLES, STATUS, WO_STATUS, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, CURRENCIES, fmtMoney } from './constants';
 import { PERM_GROUPS } from './perm';
 import { TZ_OFFSET_H, gyParts, p2 } from './pure';
 
@@ -120,6 +120,8 @@ export interface Lookup {
   mechanic(id: string): string | null;
   part(id: string): string | null;
   issue(id: string): { title: string; vehicleId: string | null } | null;
+  /** The agency's currency code (GYD when not given). */
+  currency?: string;
 }
 export const NO_LOOKUP: Lookup = { unit: () => null, wo: () => null, base: () => null, person: () => null, mechanic: () => null, part: () => null, issue: () => null };
 
@@ -135,7 +137,7 @@ export const plain = (segs: Seg[]) => segs.map((s) => s.v).join('');
 /* ---------------------------------------------------------------- small formatting helpers */
 
 const isObj = (x: any) => x != null && typeof x === 'object' && !Array.isArray(x);
-const gyd = (n: any) => 'G$ ' + Math.round(Number(n) || 0).toLocaleString('en-US');
+const money = (L: Lookup, n: any) => fmtMoney(n, L.currency);
 const num = (n: any) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
 const roleLabel = (r: any) => (ROLES as Record<string, string>)[r] || String(r ?? '');
 const permLabel = new Map<string, string>(PERM_GROUPS.flatMap((g) => g.items));
@@ -269,7 +271,7 @@ const DESCRIBE: Record<string, Describer> = {
   /* parts, mechanics, PM, setup */
   'part.create': (r) => S('Added part ', String(r.after?.number ?? ''), r.after?.description ? ` (${r.after.description})` : ''),
   'part.update': (r, L) => S('Updated part ', (r.entityId && L.part(r.entityId)) || String(r.after?.number ?? r.before?.number ?? 'a part')),
-  'part.receive': (r, L) => S('Received ', num(r.after?.received ?? 0), ' of part ', (r.entityId && L.part(r.entityId)) || 'a part', r.after?.cost != null ? ` at ${gyd(r.after.cost)} each` : ''),
+  'part.receive': (r, L) => S('Received ', num(r.after?.received ?? 0), ' of part ', (r.entityId && L.part(r.entityId)) || 'a part', r.after?.cost != null ? ` at ${money(L, r.after.cost)} each` : ''),
   'mechanic.create': (r) => S('Added mechanic ', String(r.after?.name ?? '')),
   'mechanic.update': (r, L) => S('Updated mechanic ', (r.entityId && L.mechanic(r.entityId)) || String(r.after?.name ?? 'a mechanic')),
   'base.create': (r) => S('Added base ', String(r.after?.name ?? '')),
@@ -324,7 +326,7 @@ export const EMPTY = '—';
 const LABELS: Record<string, string> = {
   baseId: 'Base', fromBaseId: 'From base', toBaseId: 'To base', baseIds: 'Bases', engineHours: 'Engine hours', odometerKm: 'Odometer (km)', unit: 'Unit name', status: 'Status', statusReason: 'Reason', reason: 'Reason',
   mechanicId: 'Mechanic', priority: 'Priority', notes: 'Notes', name: 'Name', role: 'Role', tempUntil: 'Temporary until', onHand: 'On hand', unitCost: 'Unit cost', number: 'Number', description: 'Description',
-  approvalThresholdGYD: 'Approval threshold', dueSoonHours: 'Due-soon window (hours)', dueSoonDays: 'Due-soon window (days)', dueSoonKm: 'Due-soon window (km)', comebackDays: 'Comeback window (days)',
+  approvalThresholdGYD: 'Approval threshold', currency: 'Currency', dueSoonHours: 'Due-soon window (hours)', dueSoonDays: 'Due-soon window (days)', dueSoonKm: 'Due-soon window (km)', comebackDays: 'Comeback window (days)',
   'features.uploads': 'Photo and PDF uploads', uploads: 'Photo and PDF uploads', active: 'Active', hours: 'Engine hours', km: 'Kilometres', flagged: 'Flagged for review', email: 'Email', fits: 'Fits', reorderPoint: 'Reorder point',
   region: 'Region', minUnits: 'Minimum units', shop: 'Location', severity: 'How serious', title: 'Title', vehicleId: 'Unit', type: 'Type', how: 'How', received: 'Quantity received', cost: 'Cost per unit',
   scheduledFor: 'Scheduled for', vehicleHours: 'Unit hours', mechanicName: 'Mechanic', phone: 'Phone', size: 'Size', tasks: 'Tasks', rows: 'Records removed', qty: 'Quantity',
@@ -351,7 +353,7 @@ export function fieldLabel(path: string): string {
   if (path.startsWith('perm.')) return PERM_LABEL(path.slice(5));
   return LABELS[path] ?? LABELS[lastKey(path)] ?? humanise(lastKey(path));
 }
-/** One value, formatted for people: names instead of ids, DD/MM/YYYY dates, G$ amounts, yes/no, role and status labels. */
+/** One value, formatted for people: names instead of ids, DD/MM/YYYY dates, amounts in the agency's currency, yes/no, role and status labels. */
 export function formatValue(path: string, v: any, entityType: string, L: Lookup = NO_LOOKUP): string {
   const key = lastKey(path);
   if (path.startsWith('perm.')) return v === undefined ? 'Role default' : v ? 'Yes' : 'No';
@@ -375,12 +377,13 @@ export function formatValue(path: string, v: any, entityType: string, L: Lookup 
     if (key === 'status') return (entityType === 'work_order' ? WO_STATUS[s] : entityType === 'issue' ? ISSUE_ST[s] : STATUS[s]?.label ?? WO_STATUS[s]) ?? s;
     return s;
   }
+  if (key === 'currency') { const c = CURRENCIES.find((x) => x.code === s); return c ? `${c.label} (${c.symbol})` : s; }
   if (key === 'priority') return PRIO[s] ?? s;
   if (key === 'severity') return SEV[s] ?? s;
   if (key === 'type' && entityType === 'work_order') return WO_TYPES[s] ?? s;
   if (key === 'reason') return HOLD[s] ?? s;
   if (typeof v === 'number') {
-    if (MONEY.has(key)) return gyd(v);
+    if (MONEY.has(key)) return money(L, v);
     if (HOURS.has(key)) return `${num(v)} h`;
     if (KM.has(key)) return `${num(v)} km`;
     return num(v);

@@ -1,9 +1,9 @@
 // @ts-nocheck -- ported verbatim from the prototype (checked for undefined names; behaviour is covered by npm run e2e)
 // Screens: reports (with CSV export) and setup.
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
-import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
+import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES, CURRENCIES } from '../shared/constants';
 import { D, LST, ui, S, S as APP, featureUploads, can, canWo, canPlan, settings, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
-import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
+import { $, $$, esc, num, gyd, cur, moneyStep, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
 import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip, pageHead } from './bits';
 import { icon } from './icons';
 import { VIEWS, VT } from './registry';
@@ -71,11 +71,11 @@ VIEWS.reports=function(){
   const kpi=(k,v,s,def,cls='')=>`<div class="kpi ${cls}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div><div class="def">${def}</div></div>`;
   const aPct=av.pct==null?'–':(Math.round(av.pct*10)/10)+'%';
   const mtt=mttr==null?'–':(mttr>=48?(Math.round(mttr/24*10)/10)+' d':(Math.round(mttr*10)/10)+' h');
-  const rowsPv=[['Unit','Base','Cost (G$)','Engine hours run','Cost per engine hour (G$)'],...perV.map(x=>[x.v.unit,baseName(x.v.baseId),Math.round(x.c),x.h!=null?Math.round(x.h):'',x.ph!=null?Math.round(x.ph):''])];
-  const rowsMech=[['Mechanic','Spend (G$)'],...mechItems.map(i=>[i.label,Math.round(i.value)])];
-  const rowsSys=[['Repair system','Spend (G$)'],...sysItems.map(i=>[i.label,Math.round(i.value)])];
-  const rowsPu=[['Part','Quantity','Cost (G$)'],...puRows.map(p=>[p.d,p.q,Math.round(p.c)])];
-  const rowsCand=[['Unit','Base','Cost last 365 days (G$)','Cost per engine hour (G$)','Comebacks'],...cands.map(x=>[x.v.unit,baseName(x.v.baseId),Math.round(x.c),x.ph!=null?Math.round(x.ph):'',x.cb])];
+  const rowsPv=[['Unit','Base',`Cost (${cur().code})`,'Engine hours run',`Cost per engine hour (${cur().code})`],...perV.map(x=>[x.v.unit,baseName(x.v.baseId),Math.round(x.c),x.h!=null?Math.round(x.h):'',x.ph!=null?Math.round(x.ph):''])];
+  const rowsMech=[['Mechanic',`Spend (${cur().code})`],...mechItems.map(i=>[i.label,Math.round(i.value)])];
+  const rowsSys=[['Repair system',`Spend (${cur().code})`],...sysItems.map(i=>[i.label,Math.round(i.value)])];
+  const rowsPu=[['Part','Quantity',`Cost (${cur().code})`],...puRows.map(p=>[p.d,p.q,Math.round(p.c)])];
+  const rowsCand=[['Unit','Base',`Cost last 365 days (${cur().code})`,`Cost per engine hour (${cur().code})`,'Comebacks'],...cands.map(x=>[x.v.unit,baseName(x.v.baseId),Math.round(x.c),x.ph!=null?Math.round(x.ph):'',x.cb])];
   const rowsHold=[['Hold reason','Days'],...holdItems.map(i=>[i.label,i.value])];
   const rowsBl=[['Age band','Open work orders'],...bl.map(i=>[i.label,i.value])];
   return `${pageHead('Reports')}
@@ -115,7 +115,8 @@ VIEWS.setup=function(){
   ${LST.pmPrograms.map(p=>`<div class="subpanel"><div class="ph sub"><h3>${esc(p.name)} <span class="muted small">for ${esc(p.appliesTo||'all units')}</span></h3>${m?`<button class="btn sm" data-act="edit-program" data-id="${esc(p.id)}" id="ep-${esc(p.id)}">Edit tasks</button>`:''}</div>
   <div class="tscroll"><table class="t"><thead><tr><th>Task</th><th>Group</th><th class="n">Hours</th><th class="n">Days</th><th class="n">km</th></tr></thead><tbody>${(p.tasks||[]).map(t=>`<tr><td>${esc(t.name)}</td><td>${esc(t.group)}</td><td class="n">${num(t.intervalHours)}</td><td class="n">${num(t.intervalDays)}</td><td class="n">${num(t.intervalKm)}</td></tr>`).join('')}</tbody></table></div></div>`).join('')||'<p class="muted pb">No PM programs yet.</p>'}</div>
   <div class="panel"><div class="ph"><h2>Settings</h2></div><form data-form="settings" id="settingsForm" class="pb" novalidate><div class="fgrid">
-    ${field('Approval threshold (G$)',inp('st-thr',S.approvalThresholdGYD,'number',`min="0" step="1000" ${rd}`),'Work orders at or above this need fleet manager approval.')}
+    ${field('Currency',selHtml('st-cur',CURRENCIES.map(c=>[c.code,`${c.label} (${c.symbol})`]),S.currency||'GYD',rd),'Changes the money symbol everywhere for this agency. Amounts already entered are not converted.')}
+    ${field(`Approval threshold (${cur().symbol})`,inp('st-thr',S.approvalThresholdGYD,'number',`min="0" step="${moneyStep()}" ${rd}`),'Work orders at or above this need fleet manager approval.')}
     ${field('Due soon window, hours',inp('st-h',S.dueSoonHours,'number',`min="0" ${rd}`))}${field('Due soon window, days',inp('st-d',S.dueSoonDays,'number',`min="0" ${rd}`))}
     ${field('Comeback window, days',inp('st-cb',S.comebackDays,'number',`min="0" ${rd}`),'A repeat repair of the same system within this many days is a comeback.')}</div>
     ${m?'<button class="btn primary" type="submit" id="st-save">Save settings</button>':''}</form></div>

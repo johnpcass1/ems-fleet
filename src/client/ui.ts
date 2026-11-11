@@ -2,7 +2,7 @@
 import { RANK, checkReading, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
 import { D, LST, ui, S, can, canWo, settings, uploadsOn, vehiclesSorted, basesSorted, baseName, unitOf, readingsOf, wosOf, vsum, hasSample, coverageAfterRemoval, coverageEffect, saveUi } from './state';
-import { $, $$, esc, num, gyd, todayStr, toast, selHtml, field, inp, nv, val, run } from './util';
+import { $, $$, esc, num, gyd, cur, moneyStep, todayStr, toast, selHtml, field, inp, nv, val, run } from './util';
 import { statusPill, statusSw, baseOpts, loanChip } from './bits';
 import { layoutActs, closeMenus, escLayout, navRoot } from './layout';
 import { showDrawer, closeDrawer, confirmUI, cfDone, drawerBack } from './dom';
@@ -138,7 +138,7 @@ FORMS.line=async f=>{
 export function openPartForm(p?){
   const e=!!p;p=p||{};
   showDrawer(e?`Edit ${p.number}`:'Add part',`<form data-form="part" data-id="${e?esc(p.id):''}" id="partForm" novalidate>
-    <div class="fgrid">${field('Part number',inp('pt-num',p.number||('P-'+(1001+LST.parts.length)),'text','required'))}${field('Unit cost (G$)',inp('pt-cost',p.unitCost??0,'number','min="0" step="1" required'))}</div>
+    <div class="fgrid">${field('Part number',inp('pt-num',p.number||('P-'+(1001+LST.parts.length)),'text','required'))}${field(`Unit cost (${cur().symbol})`,inp('pt-cost',p.unitCost??0,'number',`min="0" step="${moneyStep()}" required inputmode="decimal"`))}</div>
     ${field('Description',inp('pt-desc',p.description,'text','required'))}${field('Fits',inp('pt-fits',p.fits,'text'))}
     <div class="fgrid">${field('On hand',inp('pt-on',p.onHand??0,'number','min="0" step="1" required'))}${field('Reorder point',inp('pt-rp',p.reorderPoint??0,'number','min="0" step="1" required'))}</div>
     <div class="dfoot"><button class="btn" type="button" data-act="close-drawer" id="pt-cancel">Cancel</button><button class="btn primary" type="submit" id="pt-save">Save part</button></div></form>`);
@@ -151,7 +151,7 @@ FORMS.part=async f=>{
 export function openReceiveForm(p){
   showDrawer(`Receive stock: ${p.number}`,`<form data-form="receive" data-id="${esc(p.id)}" id="rcvForm" novalidate><p class="muted small">${esc(p.description)}. On hand: <b>${num(p.onHand)}</b> at ${gyd(p.unitCost)} each.</p>
     ${field('Quantity received',inp('rc-qty','','number','min="1" step="1" required inputmode="numeric"'))}
-    ${field('Cost per unit on this delivery (G$)',inp('rc-cost',p.unitCost,'number','min="0" step="1" required'),'The part’s unit cost becomes the weighted average of old stock and this delivery.')}
+    ${field(`Cost per unit on this delivery (${cur().symbol})`,inp('rc-cost',p.unitCost,'number',`min="0" step="${moneyStep()}" required inputmode="decimal"`),'The part’s unit cost becomes the weighted average of old stock and this delivery.')}
     <div class="dfoot"><button class="btn" type="button" data-act="close-drawer" id="rc-cancel">Cancel</button><button class="btn primary" type="submit" id="rc-save">Receive stock</button></div></form>`);
 }
 FORMS.receive=async f=>{
@@ -208,7 +208,7 @@ FORMS.program=async f=>{
 };
 FORMS.settings=async f=>{
   if(!can('setup'))return;
-  const o={approvalThresholdGYD:nv(val('st-thr'))??150000,dueSoonHours:nv(val('st-h'))??25,dueSoonDays:nv(val('st-d'))??14,comebackDays:nv(val('st-cb'))??30};
+  const o={currency:val('st-cur')||'GYD',approvalThresholdGYD:nv(val('st-thr'))??150000,dueSoonHours:nv(val('st-h'))??25,dueSoonDays:nv(val('st-d'))??14,comebackDays:nv(val('st-cb'))??30};
   if(await run(()=>saveSettings(o)))toast('Settings saved');
 };
 
@@ -342,7 +342,7 @@ document.addEventListener('input',(e:any)=>{
     case 'ri-vehicle':updateIssueDup(true);break;
     case 'wf-vehicle':$('#wf-checks').innerHTML=woChecksHtml(el.value);break;
     case 'sc-to':{const v=D.vehicles[$('#statusForm').dataset.id];$('#sc-warn').innerHTML=statusWarnHtml(v,el.value);$('#sc-etawrap').hidden=el.value==='in_service';break;}
-    case 'ln-kind':{$('#ln-partwrap').hidden=el.value!=='part';if(el.value==='labor'){$('#ln-cost').value=6000;}break;}
+    case 'ln-kind':{$('#ln-partwrap').hidden=el.value!=='part';if(el.value==='labor'&&cur().code==='GYD'){$('#ln-cost').value=6000;}break;}
     case 'ln-part':{const p=D.parts[el.value];if(p){$('#ln-desc').value=p.description;$('#ln-cost').value=p.unitCost;}break;}
   }
 });

@@ -537,3 +537,40 @@ describe('the database', () => {
     expect((await row("SELECT COUNT(*) AS n FROM wo_issue_links WHERE agency_id = 'BB'")).n).toBe(1);
   });
 });
+
+describe('currency per agency', () => {
+  const settingsBody = (extra: object = {}) => ({ approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, ...extra });
+  it('an agency created without a currency uses the Guyana dollar; one created with USD starts in USD; an unknown code is refused', async () => {
+    expect((await syncAll(bAdmin)).data.settings[0].currency).toBe('GYD');
+    const r = await api('POST', '/api/agencies', { cookie: sup, body: { code: 'USA', name: 'US Agency', currency: 'USD', admin: { name: 'A', email: 'a@usa.test', password: PASSWORD } } });
+    expect(r.status).toBe(200);
+    expect(JSON.parse((await row("SELECT data FROM settings WHERE id = 'USA'")).data).currency).toBe('USD');
+    const bad = await api('POST', '/api/agencies', { cookie: sup, body: { code: 'XX', name: 'X', currency: 'ABC', admin: { name: 'A', email: 'a@xx.test', password: PASSWORD } } });
+    expect(bad.status).toBe(400);
+    expect(await row("SELECT id FROM agencies WHERE id = 'XX'")).toBeFalsy();
+  });
+  it('switching to USD affects only that agency, keeps cents on part costs, and shows $ in its activity export', async () => {
+    must(await api('PUT', '/api/settings', { cookie: bAdmin, body: settingsBody({ currency: 'USD' }) }), 'b usd');
+    expect((await syncAll(bAdmin)).data.settings[0].currency).toBe('USD');
+    expect((await syncAll(gAdmin)).data.settings[0].currency ?? 'GYD').toBe('GYD');
+    // B: 5 on hand at 10.00, receive 3 at 10.99 -> (50 + 32.97) / 8 = 10.37125 -> 10.37
+    must(await post(bAdmin, `/api/parts/${B.part}/receive`, { qty: 3, cost: 10.99 }), 'receive');
+    expect((await row('SELECT unit_cost AS c FROM parts WHERE id = ?', B.part)).c).toBeCloseTo(10.37, 5);
+    const csv = await (await api('GET', '/api/admin/activity/export', { cookie: bAdmin })).res.text();
+    expect(csv).toContain('at $ 10.99');
+    expect(csv).not.toContain('G$');
+    expect((await api('PUT', '/api/settings', { cookie: bAdmin, body: settingsBody({ currency: 'DOGE' }) })).status).toBe(400);
+  });
+  it('the Guyana dollar still rounds part costs to whole dollars', async () => {
+    const p = must(await post(gAdmin, '/api/parts', { number: 'ZZG-CUR', description: 'G part', onHand: 1, reorderPoint: 0, unitCost: 100 }), 'g part').id;
+    must(await post(gAdmin, `/api/parts/${p}/receive`, { qty: 2, cost: 101 }), 'g receive');
+    expect((await row('SELECT unit_cost AS c FROM parts WHERE id = ?', p)).c).toBe(101); // (100 + 202) / 3 = 100.67 -> 101
+  });
+  it('a settings save without a currency keeps the one already chosen', async () => {
+    must(await api('PUT', '/api/settings', { cookie: bAdmin, body: settingsBody({ currency: 'EUR' }) }), 'eur');
+    must(await api('PUT', '/api/settings', { cookie: bAdmin, body: settingsBody({ dueSoonDays: 9 }) }), 'no currency');
+    const s = (await syncAll(bAdmin)).data.settings[0];
+    expect(s.currency).toBe('EUR');
+    expect(s.dueSoonDays).toBe(9);
+  });
+});

@@ -1,3 +1,4 @@
+import { roundMoney } from './constants';
 /* Pure logic shared by the browser and the Worker: no DOM, no globals. Ported unchanged from the approved prototype. */
 
 export const DAY = 864e5;
@@ -183,9 +184,9 @@ export function csvCell(v: any): string {
 }
 export const toCsv = (rows: any[][]) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 
-/** Weighted average unit cost after receiving stock (rounded to whole G$). */
-export function weightedAvgCost(onHand: number, unitCost: number, qty: number, cost: number): number {
-  return Math.round((onHand * unitCost + qty * cost) / (onHand + qty));
+/** Weighted average unit cost after receiving stock, rounded to the currency's smallest unit (whole G$, or cents). */
+export function weightedAvgCost(onHand: number, unitCost: number, qty: number, cost: number, currency?: string): number {
+  return roundMoney((onHand * unitCost + qty * cost) / (onHand + qty), currency);
 }
 
 /** Whether a work order total needs fleet manager approval. */

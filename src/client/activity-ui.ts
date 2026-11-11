@@ -5,7 +5,7 @@
 import { ROLES } from '../shared/constants';
 import { ACTIVITY_CATEGORIES, categoryLabel, describe, diffFields, dayLabel, dmyHM, timeHM, truncate, type FieldChange, type Lookup, type Seg } from '../shared/activity';
 import { gyDate } from '../shared/pure';
-import { D, S, can, ui, saveUi, scheduleRender } from './state';
+import { D, S, can, ui, saveUi, scheduleRender, agencySettings } from './state';
 import { esc, selHtml, toast, saveBlob, todayStr } from './util';
 import { VIEWS } from './registry';
 import { pageHead, emptyState } from './bits';
@@ -33,6 +33,7 @@ const L: Lookup = {
   mechanic: (id) => D.mechanics[id]?.name ?? null,
   part: (id) => D.parts[id]?.number ?? null,
   issue: (id) => (D.issues[id] ? { title: D.issues[id].title, vehicleId: D.issues[id].vehicleId ?? null } : null),
+  get currency() { return agencySettings().currency; },
 };
 
 function qs(extra: Record<string, string> = {}) {

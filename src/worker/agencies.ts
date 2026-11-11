@@ -12,6 +12,7 @@ import { bad, conflict, forbidden, notFound, nowISO, parse, uid, zText } from '.
 import { hashPassword, iterationsFor, passwordProblem } from './auth';
 import type { Actor } from '../shared/perm';
 import { DEFAULT_SETTINGS } from './rules';
+import { CURRENCY_CODES, DEFAULT_CURRENCY } from '../shared/constants';
 
 export const CODE_RE = /^[A-Z0-9-]{2,20}$/;
 /** The code as people type it: trimmed and upper case. Not yet checked against CODE_RE. */
@@ -47,6 +48,7 @@ export function checkSuperEmailAllowed(env: Env, agencyId: string, email: string
 const createIn = z.object({
   code: z.string().trim().toUpperCase().regex(CODE_RE, 'The Agency ID must be 2 to 20 characters: letters, numbers or hyphens.'),
   name: zText(100).min(1, 'Enter the agency name.'),
+  currency: z.enum(CURRENCY_CODES).default(DEFAULT_CURRENCY),
   admin: z.object({
     name: zText(120).min(1, 'Enter the administrator\'s name.'),
     email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(200),
@@ -69,12 +71,12 @@ export async function createAgency(env: Env, actor: Actor, body: unknown) {
   const tx = new Tx(env.DB, actor, i.code);
   tx.run('INSERT INTO agencies (id, name, active, created_by, created_at, updated_at) VALUES (?,?,1,?,?,?)', i.code, i.name, actor.email, tx.at, tx.at);
   const { rolePerms: _rp, ...defaults } = DEFAULT_SETTINGS;
-  tx.run(`INSERT INTO settings (id, data, sample, seq, created_at, updated_at, agency_id) VALUES (?,?,0,${SEQ},?,?,?)`, i.code, JSON.stringify(defaults), tx.at, tx.at, i.code);
+  tx.run(`INSERT INTO settings (id, data, sample, seq, created_at, updated_at, agency_id) VALUES (?,?,0,${SEQ},?,?,?)`, i.code, JSON.stringify({ ...defaults, currency: i.currency }), tx.at, tx.at, i.code);
   tx.run(
     `INSERT INTO users (id, email, name, role, base_ids, mechanic_id, password_hash, active, must_change_password, seq, created_at, updated_at, agency_id) VALUES (?,?,?,'system_admin','[]',NULL,?,1,0,${SEQ},?,?,?)`,
     adminId, i.admin.email, i.admin.name, await hashPassword(i.admin.password, iterationsFor(env)), tx.at, tx.at, i.code,
   );
-  tx.audit('agency.create', 'agency', i.code, null, { name: i.name, adminEmail: i.admin.email });
+  tx.audit('agency.create', 'agency', i.code, null, { name: i.name, currency: i.currency, adminEmail: i.admin.email });
   tx.audit('user.create', 'user', adminId, null, { email: i.admin.email, name: i.admin.name, role: 'system_admin', baseIds: [], how: 'password_set_by_admin' });
   await tx.commit();
   return { ok: true, id: i.code, adminId };

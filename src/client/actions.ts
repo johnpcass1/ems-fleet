@@ -56,7 +56,7 @@ export const backupStep = (force: boolean) => api<{ status: string; step?: numbe
 /* agencies (super user only) */
 export interface AgencyRow { id: string; name: string; active: boolean; isHome: boolean; users: number; vehicles: number; createdAt: string }
 export const listAgencies = () => api<{ agencies: AgencyRow[]; homeAgency: string }>('GET', '/agencies');
-export const createAgency = (o: { code: string; name: string; admin: { name: string; email: string; password: string } }) => api<{ id: string }>('POST', '/agencies', o);
+export const createAgency = (o: { code: string; name: string; currency?: string; admin: { name: string; email: string; password: string } }) => api<{ id: string }>('POST', '/agencies', o);
 export const renameAgency = (id: string, name: string) => api('PATCH', `/agencies/${encodeURIComponent(id)}`, { name });
 export const setAgencyActive = (id: string, active: boolean) => api('POST', `/agencies/${encodeURIComponent(id)}/${active ? 'reactivate' : 'deactivate'}`);
 export const openAgency = (id: string) => api<{ agency: { id: string; name: string } }>('POST', `/agencies/${encodeURIComponent(id)}/open`);

@@ -1,6 +1,7 @@
 /** Agencies screen (super user only): the organisations that share this site. The server answers 403 to everyone else. */
 import { S, hooks, scheduleRender } from './state';
-import { esc, fmtDate, toast, field, inp, val, run } from './util';
+import { esc, fmtDate, toast, field, inp, val, run, selHtml } from './util';
+import { CURRENCIES } from '../shared/constants';
 import { VIEWS } from './registry';
 import { pageHead, actBtn } from './bits';
 import { showDrawer, closeDrawer, confirmUI } from './dom';
@@ -40,6 +41,7 @@ function addFormHtml() {
     <p class="small muted" style="margin-top:0">The agency starts empty, with default settings. Its first system administrator then sets up bases, vehicles and people.</p>
     ${field('Agency ID', inp('ag-code', '', 'text', 'required maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. NORTH"'), '2 to 20 characters: letters, numbers or hyphens. People type this to log in. It cannot be changed later.')}
     ${field('Agency name', inp('ag-name', '', 'text', 'required maxlength="100" autocomplete="off"'), 'Shown in the sidebar and on the page title.')}
+    ${field('Currency', selHtml('ag-cur', CURRENCIES.map((c) => [c.code, `${c.label} (${c.symbol})`]), 'USD'), 'Money is shown in this currency. The agency can change it later in Setup.')}
     <fieldset class="f"><legend class="l">First system administrator</legend>
     ${field('Full name', inp('ag-aname', '', 'text', 'required maxlength="120" autocomplete="off"'))}
     ${field('Email', inp('ag-aemail', '', 'email', 'required maxlength="200" autocomplete="off"'))}
@@ -63,7 +65,7 @@ export const agencyForms: Record<string, any> = {
     if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter a valid email address.', true); return; }
     const problem = passwordProblem(pwVal('ag-pw'), pwVal('ag-pw2'), email);
     if (problem) { toast(problem, true); return; }
-    if (await run(() => createAgency({ code, name, admin: { name: aname, email, password: pwVal('ag-pw') } }))) {
+    if (await run(() => createAgency({ code, name, currency: val('ag-cur') || 'USD', admin: { name: aname, email, password: pwVal('ag-pw') } }))) {
       closeDrawer();
       toast(`${name} added. Give ${aname} the Agency ID ${code}, their email and the password.`);
       await loadAgencies(true);

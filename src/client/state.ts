@@ -2,7 +2,7 @@
 import { RANK, addDays, avgHoursPerDay, daysBetween, pmTaskStatus, projectDue, woTotal } from '../shared/pure';
 import { STATUS, isAvail, isOos } from '../shared/constants';
 import { canOnVehicle, canWorkWO, can as canActor, type Actor } from '../shared/perm';
-import { esc, todayStr } from './util';
+import { esc, todayStr, setCurrencySource } from './util';
 
 export const COLS = ['bases', 'pmPrograms', 'vehicles', 'meterReadings', 'statusEvents', 'issues', 'workOrders', 'parts', 'mechanics', 'settings', 'moves', 'people'];
 export const D: Record<string, Record<string, any>> = {};
@@ -118,7 +118,8 @@ export const nameOf = (id: any) => (id && D.people[id]?.name) || 'Someone';
 /* ---- lookups ---- */
 /** The agency's one settings record (its id is the agency code; the server only ever sends the agency's own). */
 export const agencySettings = (): any => LST.settings[0] || {};
-export const settings = () => ({ approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, ...agencySettings() });
+setCurrencySource(() => agencySettings().currency);
+export const settings = () => ({ currency: 'GYD', approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, ...agencySettings() });
 /** Photo and PDF uploads switch (Setup). Anything but a real `true` (including a missing key) means OFF. */
 export const featureUploads = () => agencySettings().features?.uploads === true;
 /** 'on' = may upload; 'off' = the site-wide switch is off (super user only can change it); 'noperm' = switch is on but this person has no upload permission. */

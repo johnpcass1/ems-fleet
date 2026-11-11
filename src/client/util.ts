@@ -1,10 +1,18 @@
+import { currencyOf, fmtMoney } from '../shared/constants';
 import { gyDate, gyParts, p2 } from '../shared/pure';
 
 export const $ = (s: string, r: ParentNode = document): any => r.querySelector(s);
 export const $$ = (s: string, r: ParentNode = document): any[] => [...r.querySelectorAll(s)];
 export const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 export const num = (n: any) => (n == null || n === '' || Number.isNaN(Number(n)) ? '–' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 }));
-export const gyd = (n: any) => 'G$ ' + Math.round(Number(n) || 0).toLocaleString('en-US');
+/** An amount in the agency's currency (Setup > Settings), e.g. "G$ 150,000" or "$ 1,234.50". The name is kept from when every amount was G$. */
+export const gyd = (n: any) => fmtMoney(n, curCode());
+/** The agency's currency code; set by state.ts so this file does not depend on it. */
+let curCode: () => string | undefined = () => undefined;
+export const setCurrencySource = (f: () => string | undefined) => { curCode = f; };
+/** The agency's currency (symbol, decimals) for labels such as "Unit cost (G$)" and the step of money inputs. */
+export const cur = () => currencyOf(curCode());
+export const moneyStep = () => (cur().decimals ? '0.01' : '1');
 export function fmtDate(x: any) {
   if (!x) return '–';
   const s = String(x).length === 10 ? x : gyDate(Date.parse(x));

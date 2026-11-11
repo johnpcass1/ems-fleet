@@ -3,7 +3,7 @@
 import { RANK, DAY, addDays, daysBetween, gyDate, isComeback, lineCost, woTotal, woWarranty, hoursAt, computeAvailability, toCsv } from '../shared/pure';
 import { STATUS, isAvail, isOos, WO_STATUS, WO_KIND, WO_TYPES, PRIO, SEV, ISSUE_ST, HOLD, WO_ACTIVE, REPAIR_CODES } from '../shared/constants';
 import { D, LST, ui, S, can, canWo, canPlan, settings, uploadsOn, uploadState, vehiclesSorted, basesSorted, baseName, mechName, unitOf, readingsOf, eventsOf, issuesOf, wosOf, openIssues, prog, hasSample, remH, vsum, remText, coverage, coverageAfterRemoval, coverageEffect, nameOf } from './state';
-import { $, $$, esc, num, gyd, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
+import { $, $$, esc, num, gyd, cur, moneyStep, fmtDate, fmtDT, todayStr, nowISO, fmtSize, toast, selHtml, field, inp, opt, nv, val, run, uerr } from './util';
 import { pill, statusPill, pmPill, kv, baseOpts, vehOpts, statusOpts, loanChip, CLIP, attChip, isImgAtt, thumbStrip, pageHead, actBtn, emptyState } from './bits';
 import { icon } from './icons';
 import { VIEWS, VT } from './registry';
@@ -183,7 +183,7 @@ export function woHtml(wo){
     <div class="fgrid">${field('Kind',selHtml('ln-kind',[['labor','Labor'],['part','Part'],['outside','Outside work']],'labor'))}
     <div id="ln-partwrap" hidden>${field('Part',selHtml('ln-part',[['','Pick a part'],...LST.parts.map(p=>[p.id,`${p.number} ${p.description} (${p.onHand} in stock)`])],''),'Stock is deducted when the work order is completed.')}</div></div>
     ${field('Description',inp('ln-desc','','text','required maxlength="140" autocomplete="off"'))}
-    <div class="fgrid">${field('System',selHtml('ln-code',REPAIR_CODES.map(c=>[c,c]),'Other'))}${field('Quantity or hours',inp('ln-qty','1','number','min="0" step="0.5" required inputmode="decimal"'))}${field('Unit cost (G$)',inp('ln-cost','6000','number','min="0" step="100" required inputmode="numeric"'))}</div>
+    <div class="fgrid">${field('System',selHtml('ln-code',REPAIR_CODES.map(c=>[c,c]),'Other'))}${field('Quantity or hours',inp('ln-qty','1','number','min="0" step="0.5" required inputmode="decimal"'))}${field(`Unit cost (${cur().symbol})`,inp('ln-cost',cur().code==='GYD'?'6000':'','number',`min="0" step="${cur().code==='GYD'?'100':moneyStep()}" required inputmode="decimal"`))}</div>
     <label class="chk"><input type="checkbox" id="ln-warranty" name="ln-warranty"><span>Covered by warranty (not charged to the agency)</span></label>
     <div class="dfoot"><button class="btn primary" type="submit" id="ln-add">Add line</button></div></form>`:'';
   return `<div class="row tight" style="margin-bottom:10px">${pill(WO_KIND[wo.status],WO_STATUS[wo.status])}${wo.status==='on_hold'&&wo.holdReason?`<span class="badge bad">${esc(HOLD[wo.holdReason])}</span>`:''}${cb?'<span class="badge warn">Comeback</span>':''}${apprChip}</div>

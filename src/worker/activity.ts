@@ -2,6 +2,7 @@
  * Activity history (read side of audit_log): filters, newest-first cursor paging, actor names resolved from the users table, CSV export.
  * Who may call it is decided in index.ts (super user or system administrator). Nothing here writes.
  */
+import { getSettings } from './rules';
 import { z } from 'zod';
 import type { Env } from './env';
 import { isSuperuserAccount } from './env';
@@ -115,7 +116,8 @@ async function lookupFor(env: Env, agency: string, rows: ActivityRow[]): Promise
   const issues = await byIds(env, agency, 'issues', 'id, title, vehicle_id', rows.filter((r) => (r.entityType === 'issue') && r.entityId).map((r) => r.entityId!));
   const m = (xs: any[], f: (x: any) => any) => new Map(xs.map((x) => [x.id, f(x)]));
   const B = m(bases, (x) => x.name), V = m(vehicles, (x) => x.unit), U = m(users, (x) => x.name), M = m(mechanics, (x) => x.name), P = m(parts, (x) => x.number), W = m(wos, (x) => x.number), I = m(issues, (x) => ({ title: x.title, vehicleId: x.vehicle_id }));
-  return { ...NO_LOOKUP, base: (id) => B.get(id) ?? null, unit: (id) => V.get(id) ?? null, person: (id) => U.get(id) ?? null, mechanic: (id) => M.get(id) ?? null, part: (id) => P.get(id) ?? null, wo: (id) => W.get(id) ?? null, issue: (id) => I.get(id) ?? null };
+  const currency = (await getSettings(env.DB, agency)).currency;
+  return { ...NO_LOOKUP, currency, base: (id) => B.get(id) ?? null, unit: (id) => V.get(id) ?? null, person: (id) => U.get(id) ?? null, mechanic: (id) => M.get(id) ?? null, part: (id) => P.get(id) ?? null, wo: (id) => W.get(id) ?? null, issue: (id) => I.get(id) ?? null };
 }
 
 /** GET /api/admin/activity/export: the same filters, up to EXPORT_MAX rows (newest first), as CSV. */

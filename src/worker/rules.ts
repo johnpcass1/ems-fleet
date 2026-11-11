@@ -8,11 +8,12 @@ import { Tx, SEQ, all, first, b2i, agencyRow, inAgency } from './db';
 import { bad, forbidden, notFound, conflict, uid, zId, zDate, zText, parse } from './http';
 import { loadDoc } from './docs';
 import { canOnVehicle, canWorkWO, can, cleanRolePerms, type Actor, type RolePerms } from '../shared/perm';
+import { CURRENCY_CODES, DEFAULT_CURRENCY, type CurrencyCode } from '../shared/constants';
 import { checkReading, gyDate, pmTaskStatus, woTotal, needsApproval, weightedAvgCost } from '../shared/pure';
 import { HOLD, REPAIR_CODES, WO_TYPES, PRIO, STATUS, isAvail, isOos, LINE_KINDS } from '../shared/constants';
 
 /* ---------- settings ---------- */
-export const DEFAULT_SETTINGS = { approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false }, rolePerms: {} as RolePerms };
+export const DEFAULT_SETTINGS = { currency: DEFAULT_CURRENCY as CurrencyCode, approvalThresholdGYD: 150000, dueSoonHours: 25, dueSoonDays: 14, comebackDays: 30, dueSoonKm: 1000, features: { uploads: false }, rolePerms: {} as RolePerms };
 /** The agency's settings record. There is one row per agency and its id is the agency code. */
 export async function getSettings(db: D1Database, agency: string) {
   const r = await first<any>(db, 'SELECT data FROM settings WHERE id = ? AND agency_id = ?', agency, agency);
@@ -512,7 +513,7 @@ export async function receivePart(env: Env, actor: Actor, id: string, body: unkn
   const i = parse(receiveIn, body);
   const p = await agencyRow<any>(env.DB, 'parts', actor.agencyId, id);
   if (!p) throw notFound();
-  const avg = weightedAvgCost(p.on_hand || 0, p.unit_cost || 0, i.qty, i.cost);
+  const avg = weightedAvgCost(p.on_hand || 0, p.unit_cost || 0, i.qty, i.cost, (await getSettings(env.DB, actor.agencyId)).currency);
   const tx = new Tx(env.DB, actor);
   tx.guard('(SELECT on_hand FROM parts WHERE id = ?) = ?', id, p.on_hand);
   tx.run(`UPDATE parts SET on_hand = on_hand + ?, unit_cost=?, seq=${SEQ}, updated_at=? WHERE id=? AND agency_id=?`, i.qty, avg, tx.at, id, tx.agency);
@@ -601,6 +602,8 @@ export async function saveProgram(env: Env, actor: Actor, id: string | null, bod
   return { ok: true, id };
 }
 const settingsIn = z.object({
+  // approvalThresholdGYD keeps its old name for stored data; it is in the agency's currency.
+  currency: z.enum(CURRENCY_CODES).optional(),
   approvalThresholdGYD: z.number().finite().min(0).max(1e12), dueSoonHours: z.number().finite().min(0).max(1e6), dueSoonDays: z.number().finite().min(0).max(1e5),
   comebackDays: z.number().finite().min(0).max(1e5),
 });
