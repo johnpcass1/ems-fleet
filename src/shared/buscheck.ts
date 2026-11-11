@@ -82,7 +82,7 @@ export interface Shortage {
   found: string;
   note?: string;
 }
-const num = (n: number) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+const num = (n: number) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2, useGrouping: false });
 const TITLE_MAX = 120; // same limit as any problem title
 const cut = (s: string) => (s.length <= TITLE_MAX ? s : s.slice(0, TITLE_MAX - 1).trimEnd() + '…');
 

@@ -19,6 +19,12 @@ const row = (action: string, entityType: string, entityId: string | null, before
 const say = (r: any, lk: Lookup = L) => describePlain(r, lk);
 
 describe('describer sentences', () => {
+  it('bus checks', () => {
+    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 2, problems: 3 }))).toBe('Submitted a bus check on GEMA-03 with 2 shortages and 3 problems sent to maintenance');
+    expect(say(row('buscheck.submit', 'bus_check', 'c1', null, { vehicleId: 'v3', unit: 'GEMA-03', shortages: 0, problems: 0 }))).toBe('Submitted a bus check on GEMA-03 with no shortages');
+    expect(say(row('buschecklist.create', 'bus_check_list', 'l1', null, { starter: true, items: 79 }))).toBe('Started the bus check requirements from the standard list (79 items)');
+    expect(say(row('buschecklist.deactivate', 'bus_check_list', 'l1', { name: 'Box' }, { name: 'Box' }))).toBe("Made the bus check list 'Box' inactive");
+  });
   it('moves, status, readings, problems', () => {
     expect(say(row('vehicle.move', 'vehicle', 'v3', { baseId: 'hq' }, { baseId: 'linden', tempUntil: null }))).toBe('Moved GEMA-03 from HQ to Linden');
     expect(say(row('vehicle.move', 'vehicle', 'v3', { baseId: 'hq' }, { baseId: 'linden', tempUntil: '2026-11-20' }))).toBe('Moved GEMA-03 from HQ to Linden until 20/11/2026');
@@ -86,7 +92,7 @@ describe('describer sentences', () => {
 });
 
 describe('category mapping', () => {
-  it('maps actions to the nine categories', () => {
+  it('maps actions to the ten categories', () => {
     const m: [string, string, string][] = [
       ['vehicle.move', 'vehicle', 'vehicles'], ['vehicle.status', 'vehicle', 'vehicles'], ['reading.log', 'vehicle', 'vehicles'], ['reading.accept', 'meter_reading', 'vehicles'],
       ['issue.report', 'issue', 'problems'], ['issue.dismiss', 'issue', 'problems'], ['wo.create', 'work_order', 'work_orders'], ['wo.line.add', 'work_order', 'work_orders'],
@@ -94,6 +100,7 @@ describe('category mapping', () => {
       ['user.update', 'user', 'people'], ['role.permissions', 'role', 'people'], ['settings.update', 'settings', 'settings'], ['features.update', 'settings', 'settings'], ['base.create', 'base', 'settings'], ['sample.remove', 'sample', 'settings'],
       ['auth.login', 'user', 'sign_ins'], ['auth.login_failed', 'user', 'sign_ins'], ['auth.locked', 'user', 'sign_ins'], ['auth.logout', 'user', 'sign_ins'], ['backup.run', 'backup', 'backups'],
       ['attachment.add', 'issue', 'problems'], ['attachment.delete', 'work_order', 'work_orders'],
+      ['buscheck.submit', 'bus_check', 'bus_checks'], ['buschecklist.update', 'bus_check_list', 'bus_checks'], ['buschecklist.create', 'bus_check_list', 'bus_checks'],
     ];
     for (const [a, e, c] of m) expect(categoryOf(a, e), a).toBe(c);
     expect(categoryOf('something.new', 'x')).toBe('other');
