@@ -451,7 +451,9 @@ async function managersFlow(browser, ctxOpts, tag, secrets) {
     await su.page.waitForSelector('#rolesSave:not([disabled])');
     if (!/1 unsaved change/.test(await su.page.locator('#rolesDirty').innerText())) throw new Error('no unsaved count');
     if (!(await su.page.locator('td.unsaved[data-role="crew"]').count())) throw new Error('the unsaved box is not highlighted');
-    { const b = await su.page.locator('#rolesSave').boundingBox(), h = await su.page.locator('#view h1').boundingBox(); if (!b || !h || b.y > h.y + 80) throw new Error('Save changes is not at the top of the page'); }
+    if (!(await su.page.locator('#topact #rolesSave').isVisible())) throw new Error('Save changes is not in the top bar');
+    if (!/Save changes/.test(await su.page.locator('#rolesSave').innerText())) throw new Error('Save changes has no visible label');
+    if (await su.page.locator('#roleMatrix .rstate').count()) throw new Error('Yes/No words are still next to the boxes');
     // Discard puts the boxes back without saving
     await su.page.click('#rolesDiscard'); await su.page.waitForSelector('#cfT'); await su.page.click('#cfYes');
     await su.page.waitForSelector('#rolesSave[disabled]');

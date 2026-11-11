@@ -9,7 +9,7 @@ import { PERM_GROUPS, SUPER_ONLY_KEYS, can as canActor, editableRoles, hasPerm, 
 import { D, S, scheduleRender } from './state';
 import { esc, toast, run } from './util';
 import { VIEWS } from './registry';
-import { pageHead } from './bits';
+import { pageHead, actBtn } from './bits';
 import { confirmUI } from './dom';
 import { saveAllRolePermissions } from './actions';
 import { usersCache, loadUsers } from './users-ui';
@@ -53,7 +53,7 @@ VIEWS.roles = function () {
     const dis = !ed || !!why;
     const lbl = `${ROLES[r]}: ${label}`;
     const uns = !!draft[r] && k in draft[r];
-    return `<td class="rc${ed ? '' : ' ro'}${uns ? ' unsaved' : ''}" data-role="${r}"><label class="rcell"><input type="checkbox" id="rp-${r}-${k}" data-rp="1" data-role="${r}" data-key="${k}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''} aria-label="${esc(lbl)}" ${why ? `title="${esc(why)}"` : ''}><span class="rstate">${on ? 'Yes' : 'No'}</span></label>${on !== def ? `<span class="badge warn rchg" id="rchg-${r}-${k}" title="Changed from default">Changed<span class="sr"> from default</span></span>` : ''}</td>`;
+    return `<td class="rc${ed ? '' : ' ro'}${uns ? ' unsaved' : ''}" data-role="${r}"><label class="rcell"><input type="checkbox" id="rp-${r}-${k}" data-rp="1" data-role="${r}" data-key="${k}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''} aria-label="${esc(lbl)}" ${why ? `title="${esc(why)}"` : ''}></label>${on !== def ? `<span class="badge warn rchg" id="rchg-${r}-${k}" title="Changed from default">Changed<span class="sr"> from default</span></span>` : ''}</td>`;
   }).join('')}</tr>`).join('')).join('');
   const foot = `<tr class="rfoot"><th scope="row" class="pl">Back to the built-in defaults<span class="tiny muted rfhint">Fills in the defaults; press Save changes to keep them.</span></th>${ROLE_LIST.map((r) => {
     const ed = edit.includes(r as any);
@@ -63,7 +63,7 @@ VIEWS.roles = function () {
   const nChg = dirty.reduce((n, r) => n + Object.keys(draft[r]).length, 0);
   const acts = `${dirty.length ? `<span class="small muted rdirty" id="rolesDirty" role="status">${nChg} unsaved ${nChg === 1 ? 'change' : 'changes'}</span>` : '<span class="sr" role="status"></span>'}
     <button class="btn" type="button" data-act="roles-discard" id="rolesDiscard" ${dirty.length ? '' : 'disabled'}>Discard changes</button>
-    <button class="btn primary" type="button" data-act="roles-save" id="rolesSave" ${dirty.length ? '' : 'disabled'}>Save changes</button>`;
+    ${actBtn('Save changes', { id: 'rolesSave', act: 'roles-save', primary: true, icon: 'check', cls: 'keeplbl', disabled: !dirty.length })}`;
   return `${pageHead('Roles & permissions', { acts })}
   <div class="warnbox info" id="rolesNote">These are the defaults for each role. You can still adjust one person under Users → Permissions.</div>
   <div class="panel"><div class="ph"><h2>What each role can do</h2><span class="badge">${S.me!.isSuperuser ? 'All roles' : 'Fleet manager and below'}</span></div>
