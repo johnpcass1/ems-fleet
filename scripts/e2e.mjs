@@ -936,6 +936,78 @@ async function busCheckFlow(browser, ctxOpts, tag, secrets, n) {
   await crew.ctx.close(); await fm.ctx.close();
 }
 
+/** The demo: "Try the demo", every person in the top-right menu, a change, the refusals, and not one request to the real API once it has started. */
+async function demoFlow(browser, ctxOpts, tag) {
+  const ctx = await newCtx(browser, ctxOpts); const page = await ctx.newPage(); page.setDefaultTimeout(15000);
+  const errs = [], api = [];
+  page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+  page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+  page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/')) api.push(r.method() + ' ' + new URL(r.url()).pathname); });
+  const shot = (n) => page.screenshot({ path: `${SHOTS}/${tag}-${n}.png`, fullPage: false });
+  const become = async (id) => {
+    await page.selectOption('#demoPerson', id);
+    await page.waitForFunction((v) => { const s = document.querySelector('#demoPerson'); return s && s.value === v && !s.disabled && !document.querySelector('#view')?.textContent?.includes('Loading fleet data'); }, id);
+  };
+  let apiBefore = 0;
+  await check(page, 'demo: Try the demo opens the sample fleet as the fleet manager', async () => {
+    await page.goto(BASE + '/');
+    await page.waitForSelector('#demoStart');
+    apiBefore = api.length;
+    await page.click('#demoStart');
+    await page.waitForSelector('#demoPerson');
+    await page.waitForSelector('#demoBanner');
+    if ((await page.$eval('#demoPerson', (s) => s.value)) !== 'demo-fleet-manager') throw new Error('did not start as the fleet manager');
+    if (!(await page.$eval('#view', (v) => v.textContent)).includes('GEMA-01')) throw new Error('sample fleet not shown');
+    await noOverflow(page);
+    await shot('30-demo-board');
+  }, tag);
+  await check(page, 'demo: the top-right menu has every role, and each one sees their own screens', async () => {
+    const ids = await page.$$eval('#demoPerson option', (o) => o.map((x) => x.value));
+    if (ids.length !== 7) throw new Error('expected 7 demo people, got ' + ids.length);
+    for (const id of ids) {
+      await become(id);
+      const nav = await page.$$eval('#nav a', (a) => a.map((x) => x.dataset.r));
+      if (id === 'demo-dispatcher' && nav.join() !== 'dispatch') throw new Error('dispatcher sees ' + nav.join());
+      if (id === 'demo-system-admin' && !nav.includes('roles')) throw new Error('system administrator has no Roles & permissions');
+      if (id === 'demo-viewer' && nav.includes('users')) throw new Error('viewer can see Users');
+    }
+    await become('demo-crew');
+    await shot('31-demo-crew');
+  }, tag);
+  await check(page, 'demo: a crew report reaches the fleet manager; uploads are not available', async () => {
+    await page.goto(BASE + '/#board');
+    await page.click('#boardReport');
+    await page.waitForSelector('#issueForm');
+    if (await page.$('#ri-photos')) throw new Error('photo upload is available in the demo');
+    if (!(await page.$eval('#upnote', (e) => e.textContent)).includes('not available in the demo')) throw new Error('no demo upload note');
+    await page.fill('#ri-title', 'Demo e2e: rear door latch sticks');
+    await page.click('#ri-submit');
+    await page.waitForSelector('#issueForm', { state: 'detached' });
+    await become('demo-fleet-manager');
+    await page.goto(BASE + '/#issues');
+    await page.waitForFunction(() => document.querySelector('#view')?.textContent?.includes('Demo e2e: rear door latch sticks'));
+  }, tag);
+  await check(page, 'demo: no request reached the real API after the demo started', async () => {
+    const after = api.slice(apiBefore);
+    if (after.length) throw new Error(after.slice(0, 5).join(', '));
+  }, tag);
+  await check(page, 'demo: reloading starts again from the login page, and the change is gone', async () => {
+    await page.reload();
+    await page.waitForSelector('#demoStart');
+    await page.click('#demoStart');
+    await page.waitForSelector('#demoPerson');
+    await page.goto(BASE + '/#issues');
+    await page.waitForSelector('#view h1');
+    if ((await page.$eval('#view', (v) => v.textContent)).includes('Demo e2e')) throw new Error('the change survived a reload');
+  }, tag);
+  await check(page, 'demo: Exit demo returns to the login page', async () => {
+    await page.click('#demoExitBanner');
+    await page.waitForSelector('#loginForm');
+    if (await page.$('#demoPerson option')) throw new Error('demo menu still shown');
+  }, tag);
+  await check(page, 'demo: no console errors', async () => { if (errs.length) throw new Error(errs.slice(0, 3).join(' | ')); }, tag);
+  await ctx.close();
+}
 async function newCtx(browser, opts) {
   const ctx = await browser.newContext(opts);
   ctx.on('request', (r) => { if (!/^(blob:|data:)/.test(r.url()) && !r.url().startsWith(BASE)) stray.push(r.url()); });
@@ -1317,6 +1389,7 @@ async function agenciesFlow(browser, ctxOpts, tag, secrets) {
     await roleFlow(browser, ctxOpts, tag, 'crew', secrets, 'crew');
     await roleFlow(browser, ctxOpts, tag, 'disp', secrets, 'dispatcher');
     await roleFlow(browser, ctxOpts, tag, 'mech', secrets, 'mechanic');
+    await demoFlow(browser, ctxOpts, tag);
   }
   server.kill('SIGTERM'); sh('pkill', ['-f', 'workerd']);
   if (!process.env.E2E_SKIP_EMAIL) {

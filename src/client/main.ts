@@ -22,6 +22,7 @@ import { refreshAtt } from './views-b';
 import { resetActivity } from './activity-ui';
 import { resetBusCheck } from './buscheck-ui';
 import { resetBusChecks } from './buschecks-ui';
+import { isDemo, startDemo, switchDemoPerson, exitDemo, demoFailed } from './demo';
 
 let started = false;
 let linkToken = '';
@@ -65,6 +66,7 @@ async function startApp() {
 }
 
 setAuthHook((kind) => {
+  if (isDemo()) { exitDemo(); return; } // the demo has no login: anything that would log someone out simply leaves the demo
   if (kind === 'login') { if (S.me) toLogin('You were logged out. Please log in again.'); }
   else if (S.me) { S.me.mustChangePassword = true; stopPolling(); started = false; showForcedChange(); }
 });
@@ -163,6 +165,7 @@ acts['toggle-pw'] = (el: HTMLElement) => {
 };
 acts['change-password'] = () => showDrawer('Change password', changeFormHtml());
 acts['logout'] = async () => {
+  if (isDemo()) { exitDemo(); return; }
   stopPolling();
   started = false;
   await syncIdle();
@@ -170,6 +173,48 @@ acts['logout'] = async () => {
   location.hash = '';
   toLogin('You are logged out.');
 };
+
+/* ---------- demo (see demo.ts) ---------- */
+acts['demo-start'] = async (el: HTMLButtonElement) => {
+  el.disabled = true;
+  el.textContent = 'Starting the demo...';
+  try {
+    await startDemo();
+    const r = await api('GET', '/auth/session');
+    S.me = r.user;
+    S.emailEnabled = false;
+    location.hash = '#board';
+    await startApp();
+    toast(`Demo started. You are ${S.me!.name}.`);
+  } catch (e) {
+    demoFailed(e);
+    el.disabled = false;
+    el.textContent = 'Try the demo';
+  }
+};
+acts['demo-exit'] = () => exitDemo();
+document.addEventListener('change', async (e) => {
+  const t = e.target as HTMLSelectElement;
+  if (!t || t.id !== 'demoPerson' || !isDemo()) return;
+  t.disabled = true;
+  try {
+    await syncIdle();
+    await switchDemoPerson(t.value);
+    clearData();
+    const r = await api('GET', '/auth/session');
+    S.me = r.user;
+    $('#view').innerHTML = '<p class="muted">Loading fleet data...</p>';
+    await syncNow(); // the page stays the same when the new person may see it; otherwise route() falls back to their first page
+    render();
+    toast(`You are now ${S.me!.name}.`);
+  } catch (ex) {
+    console.error(ex);
+    toast('Could not switch person. Reload the page to start the demo again.', true);
+  }
+  const sel = document.getElementById('demoPerson') as HTMLSelectElement | null;
+  if (sel) { sel.disabled = false; sel.focus(); }
+});
+
 document.addEventListener('input', (e) => { const t = e.target as HTMLInputElement; if (t.id === 'uf-role' || t.name === 'uf-how') syncUserForm(); });
 void FORMS;
 

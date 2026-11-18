@@ -7,6 +7,7 @@ import { brandHtml } from './bits';
 import { drawNav, drawUserbar, drawBrand, drawSample, drawCrumbs, placeActions, setPageTitle, applyChrome, setLayoutRender, wallOn } from './layout';
 import { refreshDrawer } from './drawers';
 import { api } from './api';
+import { drawDemoBar, demoBannerHtml, demoLoginHtml, isDemo } from './demo';
 import './views-a';
 import './views-b';
 import './views-c';
@@ -30,10 +31,11 @@ export function render() {
   drawUserbar();
   drawSample();
   drawCrumbs(r);
-  let b = '';
+  drawDemoBar();
+  let b = demoBannerHtml();
   if (S.connFailed) b += '<div class="banner bad" role="status">Can’t reach the server right now. Showing the last data received.</div>';
   if (viewingOther() && S.me) b += `<div class="banner info" id="agencyBanner" role="status"><span>Viewing <b>${esc(S.me.agency!.name)}</b> (${esc(S.me.agency!.id)}) as the super user.</span><button class="btn sm" type="button" data-act="agency-back" id="agencyBack">Back to ${esc(S.me.homeAgency!.name)}</button></div>`;
-  if (hasSample()) b += '<div class="banner info mobonly" role="status">Sample data is loaded</div>';
+  if (hasSample() && !isDemo()) b += '<div class="banner info mobonly" role="status">Sample data is loaded</div>';
   $('#banners').innerHTML = b;
   const view = $('#view'), ae: any = document.activeElement;
   const aid = ae && (view.contains(ae) || $('#topact').contains(ae)) && ae.id ? ae.id : null, ss = aid && ae.selectionStart != null ? [ae.selectionStart, ae.selectionEnd] : null;
@@ -60,6 +62,7 @@ export function clearChrome() {
   $('#nav').innerHTML = '';
   $('#banners').innerHTML = '';
   $('#sampleChip').hidden = true;
+  drawDemoBar();
 }
 export function showLogin(message = '') {
   document.body.classList.add('loggedout');
@@ -74,7 +77,7 @@ export function showLogin(message = '') {
       <label class="f"><span class="l">Password</span><input id="lg-pass" name="password" type="password" autocomplete="current-password" required></label>
       <div id="lg-err" class="warnbox bad" role="alert" hidden></div>
       <button class="btn primary block" type="submit" id="lg-submit">Log in</button>
-    </form><p class="small muted" style="margin:14px 0 0">${S.emailEnabled ? '<a href="/" data-act="forgot" id="forgotLink">Forgot password?</a>' : 'Forgot your password? Ask your fleet manager or the system administrator to set a new one.'}</p></div></div></div>`;
+    </form><p class="small muted" style="margin:14px 0 0">${S.emailEnabled ? '<a href="/" data-act="forgot" id="forgotLink">Forgot password?</a>' : 'Forgot your password? Ask your fleet manager or the system administrator to set a new one.'}</p></div></div>${demoLoginHtml()}</div>`;
   $(last ? '#lg-email' : '#lg-agency').focus();
 }
 export function showForcedChange() {

@@ -86,7 +86,11 @@ Several agencies share one database, one Worker and one R2 bucket. The server ke
 
 ## Browser protections
 
-`Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`, plus `Referrer-Policy`, `X-Content-Type-Options: nosniff`, and `Permissions-Policy` (camera, microphone and location off). There are no inline scripts. `unsafe-inline` is allowed for styles only, because the screens use some inline `style` attributes.
+`Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`, plus `Referrer-Policy`, `X-Content-Type-Options: nosniff`, and `Permissions-Policy` (camera, microphone and location off). There are no inline scripts. `unsafe-inline` is allowed for styles only, because the screens use some inline `style` attributes. `'wasm-unsafe-eval'` lets the demo compile its WebAssembly database (see below); it does not allow JavaScript `eval` or inline scripts.
+
+## Demo
+
+The demo (**Try the demo** on the login page) needs no account and never reaches the API: the Worker code runs inside the visitor's own browser tab against an in-memory copy of the sample data, and every request is answered there. It cannot read or change real data, it has no super user, and uploads, the uploads switch, backups, agencies, password changes and email links are refused before the API code sees them. A visitor who changes the demo's code in their browser only changes their own throwaway copy. See [HANDOVER.md](HANDOVER.md), *Demo*.
 
 ## What is not covered
 

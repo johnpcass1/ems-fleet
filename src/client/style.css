@@ -109,6 +109,12 @@ button,input,select,textarea{font:inherit;color:inherit}
 .crumb{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;background:none;border:none;padding:0;color:var(--accent);cursor:pointer;font:500 14px/1.4 var(--sans)}
 .crumb:hover{text-decoration:underline}
 .topact{display:flex;align-items:center;gap:8px;flex:none}
+/* demo: the person menu at the top right (src/client/demo.ts) */
+.demobar{display:flex;align-items:center;gap:8px;flex:none;padding-left:12px;border-left:1px solid var(--line)}
+.demobar[hidden]{display:none}
+.demopick select{width:auto;max-width:300px;height:30px;font-size:13px;font-weight:500}
+.loginwrap .panel.demoinvite{margin-top:12px}
+.demoinvite h2{font-size:15px;margin:0 0 4px}
 .wrap{max-width:1440px;margin:0 auto;padding:20px max(24px,env(safe-area-inset-right,0px)) 32px max(24px,env(safe-area-inset-left,0px))}
 .bannerwrap{padding-top:0;padding-bottom:0}
 .bannerwrap:empty{display:none}
@@ -137,6 +143,9 @@ body.loggedout .main{margin-left:0}
   .topact .btn .lbl{display:none}
   .topact .btn.primary.keeplbl{width:auto;padding:0 12px}
   .topact .btn.keeplbl .lbl{display:inline}
+  .demobar{padding-left:8px;gap:6px}
+  .demobar .demotag,.demobar #demoExit{display:none}
+  .demopick select{max-width:150px}
   .vhead h1.pt{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
 @media (prefers-reduced-motion: no-preference){
