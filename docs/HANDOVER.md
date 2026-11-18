@@ -119,6 +119,17 @@ Every change a person makes, and every sign-in, is recorded in the `audit_log` t
 - A "looks wrong" reading (lower than the unit's current reading, or more than 24 hours a day since the last one) is saved flagged and does not change the unit's hours until a supervisor accepts it, exactly as for Log engine hours. The check itself is still saved.
 - Where the code is: shared rules (item kinds, shortages, list choice, shifts) `src/shared/buscheck.ts` and the starter list `src/shared/busCheckStarter.ts`; the server `src/worker/buscheck.ts`; the screens `src/client/buscheck-ui.ts` (do a check), `buschecks-ui.ts` (reports) and `busreq-ui.ts` (requirements); table definitions `migrations/0006_bus_checks.sql` and `0007_bus_check_restock.sql`; tests `test/api/buscheck.test.ts`, `test/unit/buscheck.test.ts` and the bus check part of `scripts/e2e.mjs`.
 
+## Demo
+
+**Try the demo** on the login page opens the app on the GEMA sample fleet (`src/shared/sample.ts`, the same data as `npm run seed:demo`) with no account.
+
+- **How it works.** The real API (`src/worker`) runs inside the visitor's browser tab against an in-memory SQLite database ([sql.js](https://github.com/sql-js/sql.js), SQLite compiled to WebAssembly) built from `migrations/` and the sample data. While the demo is open, every request the screens make goes to that copy instead of to the server (`setTransport` in `src/client/api.ts`). So every rule and permission behaves exactly as it does for real, the demo never reads or changes real data, and closing or reloading the page throws everything away. There is nothing to reset and nothing to clean up.
+- **People.** One demo person per role, picked from the menu at the top right (`DEMO_PEOPLE` in `src/demo/server.ts`): Andrea Singh (system administrator), Marcus Thomas (fleet manager, the starting person), Kavita Ramdass (base supervisor for HQ and Diamond), Devon Charles (mechanic at Linden Motor Clinic), Shanice Williams (crew at HQ), Ravi Persaud (dispatcher) and Joanne Baptiste (viewer). Switching keeps the same page when the new person may see it. There is no super user in the demo.
+- **Left out on purpose.** Photo and PDF uploads stay off and the switch cannot be reached (the upload buttons say "not available in the demo"); backups, agencies, removing the sample data, signing in with a password, changing passwords and email links are refused with a short message (`BLOCKED` in `src/demo/server.ts`). Log out becomes **Exit demo**.
+- **Cost.** The demo engine (about 410 KB compressed) is a separate download that only happens when someone clicks **Try the demo**; people who log in normally never load it. The demo makes no requests to the Worker, so it does not use the free plan's daily allowance.
+- **Security header.** Running WebAssembly needs `'wasm-unsafe-eval'` in the page's `script-src` (`public/_headers`). That allows compiling WebAssembly only; JavaScript `eval` and inline scripts are still blocked.
+- **When the database changes.** New migrations are picked up automatically. If a migration needs data the sample does not have, update `src/shared/sample.ts` (or `src/demo/server.ts`). `test/unit/demo.test.ts` starts the demo, signs in as every person and checks the refusals.
+
 ## Where things live
 
 - Business rules (what a status change or work order action does): `src/worker/rules.ts`
@@ -129,6 +140,7 @@ Every change a person makes, and every sign-in, is recorded in the `audit_log` t
 - Bus checks: `src/shared/buscheck.ts`, `src/worker/buscheck.ts`, `src/client/buscheck-ui.ts`, `buschecks-ui.ts`, `busreq-ui.ts`, `migrations/0006_bus_checks.sql`, `0007_bus_check_restock.sql`
 - Activity history (audit log screen): `src/shared/activity.ts`, `src/worker/activity.ts`, `src/client/activity-ui.ts`
 - Database tables: `migrations/`
+- Demo: `src/demo/server.ts` (people, refusals, seeding), `src/demo/d1.ts` (the in-browser stand-in for D1), `src/client/demo.ts` (button, top-right menu, banner), `test/unit/demo.test.ts`
 
 ## Choices worth knowing
 

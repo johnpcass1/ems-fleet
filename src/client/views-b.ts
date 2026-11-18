@@ -9,6 +9,7 @@ import { icon } from './icons';
 import { VIEWS, VT } from './registry';
 import { fileUrl, safeAsset, UP, pending, setProgressHook, normalizeFile, fileType } from './files';
 import { woHead, woRows } from './views-a';
+import { isDemo } from './demo';
 import { backBtn, routeLabel, route, allowedRoutes } from './nav';
 
 
@@ -58,7 +59,8 @@ VIEWS.issues=function(){
 };
 export const UPLOADS_OFF_NOTE='Photo and PDF uploads are turned off for now.';
 export const UPLOADS_NOPERM_NOTE='You don’t have permission to upload photos or PDFs.';
-const offMsg=()=>uploadState()==='noperm'?UPLOADS_NOPERM_NOTE:UPLOADS_OFF_NOTE;
+export const UPLOADS_DEMO_NOTE='Photo and PDF uploads are not available in the demo.';
+const offMsg=()=>isDemo()?UPLOADS_DEMO_NOTE:uploadState()==='noperm'?UPLOADS_NOPERM_NOTE:UPLOADS_OFF_NOTE;
 /** Upload buttons stay on screen when uploads are off, so people know the capability exists; they are just disabled. */
 const offBtn=(ico,label,sm='')=>`<button type="button" class="btn${sm} attlabel" disabled aria-disabled="true" title="${esc(offMsg())}">${icon(ico)}${label}</button>`;
 const offNote=()=>`<p class="tiny muted upnote" id="upnote" role="note">${icon('info')}<span>${esc(offMsg())}</span></p>`;

@@ -10,6 +10,15 @@ export class ApiError extends Error {
 let authHook: (kind: 'login' | 'change-password') => void = () => {};
 export const setAuthHook = (f: typeof authHook) => { authHook = f; };
 
+/**
+ * Where requests go. Normally the real server (fetch). While the demo is open (src/client/demo.ts) every request goes to the demo copy running in this
+ * browser instead, so nothing reaches the real server.
+ */
+type Transport = (path: string, init: RequestInit) => Promise<Response>;
+const network: Transport = (path, init) => fetch('/api' + path, { ...init, credentials: 'same-origin', cache: 'no-store' });
+let transport: Transport = network;
+export const setTransport = (t: Transport | null) => { transport = t ?? network; };
+
 export async function api<T = any>(method: string, path: string, body?: any, opts: { form?: FormData; quiet?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { 'X-Requested-With': 'gema-fleet' };
   let payload: BodyInit | undefined;
@@ -17,7 +26,7 @@ export async function api<T = any>(method: string, path: string, body?: any, opt
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
   let res: Response;
   try {
-    res = await fetch('/api' + path, { method, headers, body: payload, credentials: 'same-origin', cache: 'no-store' });
+    res = await transport(path, { method, headers, body: payload });
   } catch {
     throw uerr('Could not reach the server. Check your connection and try again.');
   }
@@ -33,7 +42,7 @@ export async function api<T = any>(method: string, path: string, body?: any, opt
 /** GET a file (for example a CSV export). Same error handling as api(). */
 export async function apiFile(path: string): Promise<{ blob: Blob; headers: Headers }> {
   let res: Response;
-  try { res = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store' }); } catch { throw uerr('Could not reach the server. Check your connection and try again.'); }
+  try { res = await transport(path, {}); } catch { throw uerr('Could not reach the server. Check your connection and try again.'); }
   if (res.ok) return { blob: await res.blob(), headers: res.headers };
   let json: any = null;
   try { json = await res.json(); } catch { /* not JSON */ }

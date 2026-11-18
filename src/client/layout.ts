@@ -4,6 +4,7 @@ import { S, D, ui, hasSample, agencyName } from './state';
 import { $, $$, esc } from './util';
 import { icon } from './icons';
 import { initials } from './bits';
+import { isDemo } from './demo';
 import { allowedRoutes, ROUTE_LABELS, NAV_GROUPS, groupOf, route, backBtn } from './nav';
 
 const LS_RAIL = 'gema-fleet-sidebar', LS_WALL = 'gema-fleet-wall';
@@ -46,14 +47,14 @@ export function drawUserbar() {
   const u = S.me;
   const el = $('#userbar');
   if (!u) { el.innerHTML = ''; el.dataset.sig = ''; return; }
-  const sig = u.name + u.role + (u.isSuperuser ? 'S' : '');
+  const sig = u.name + u.role + (u.isSuperuser ? 'S' : '') + (isDemo() ? 'D' : '');
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.innerHTML = `<div class="menu"><button type="button" class="userbtn" id="userMenuBtn" data-act="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="userPop" title="${esc(u.name)}">
       <span class="av" aria-hidden="true">${esc(initials(u.name))}</span><span class="un"><b>${esc(u.name)}</b><small>${esc(ROLES[u.role] || u.role)}${u.isSuperuser ? ' · Super user' : ''}</small></span><span class="chev">${icon('down')}</span></button>
     <div class="menupop up" id="userPop" role="menu" hidden>
-      <button type="button" role="menuitem" data-act="change-password" id="chgPw">${icon('key')}Change password</button>
-      <button type="button" role="menuitem" data-act="logout" id="logoutBtn">${icon('logout')}Log out</button></div></div>`;
+      ${isDemo() ? '' : `<button type="button" role="menuitem" data-act="change-password" id="chgPw">${icon('key')}Change password</button>`}
+      <button type="button" role="menuitem" data-act="logout" id="logoutBtn">${icon('logout')}${isDemo() ? 'Exit demo' : 'Log out'}</button></div></div>`;
 }
 /** The sidebar title is the agency's own name (the one on screen, which for a super user may not be their own). */
 export function drawBrand() {
