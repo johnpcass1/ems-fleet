@@ -33,7 +33,7 @@ export async function startDemo(): Promise<void> {
   ]);
   const names = Object.keys(migrationFiles).sort();
   const migrations = await Promise.all(names.map((n) => migrationFiles[n]() as Promise<string>));
-  const SQL = await initSqlJs({ locateFile: () => wasmUrl });
+  const SQL = await initSqlJs({ locateFile: () => wasmUrl, useOldExtensionFunctions: true });
   const s = await mod.createDemoServer(SQL, migrations);
   server = s;
   setTransport(async (path, init) => {
