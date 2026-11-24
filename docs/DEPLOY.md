@@ -60,6 +60,10 @@ You need: a free Cloudflare account, a GitHub account with this repository, and 
    npm run create-admin -- --email you@example.org --name "Your Name" --remote
    ```
    It prints a temporary password once. Open the site, log in, and choose your own password. (Or add `--password-prompt` to type a password at a hidden prompt, or `--invite` to get a set-password link.)
+   To make this person the **super user** (see [HANDOVER.md](HANDOVER.md)), store their email as a secret. It is kept out of `wrangler.jsonc` so the address isn't published with the code:
+   ```bash
+   npx wrangler secret put SUPERUSER_EMAILS
+   ```
 7. **Add the real people** in the app under **Users**. For each person you choose a password and hand it to them yourself (in person or by phone); they can change it any time with the **Password** button. To let people choose their own passwords by email and reset forgotten ones, set up email after going live (next section).
 
 ### Optional: email for account setup and password reset
@@ -96,6 +100,7 @@ npx wrangler d1 create gema-fleet-staging         # copy the id into env.staging
 npm run db:migrate:staging
 npm run deploy:staging
 npm run create-admin -- --email you@example.org --name "Your Name" --remote --env staging
+npx wrangler secret put SUPERUSER_EMAILS --env staging
 ```
 
 ## Updating the database later
@@ -107,7 +112,7 @@ npm run create-admin -- --email you@example.org --name "Your Name" --remote --en
 It also adds a variable, **`SUPERUSER_AGENCY`** (in `wrangler.jsonc` at the top level and in `env.staging`; set to `GEMA`). A super user's email only counts on an account in this agency. If you leave it out it defaults to `GEMA`. After deploying, people sign in with Agency ID `GEMA`; tell them, since the login page now has an extra box. A browser tab that was open during the deploy shows "Wrong Agency ID, email or password" until it is reloaded.
 
 
-Release 0003 (`migrations/0003_user_permissions.sql`) adds one column to `users` for per-person permissions. The GitHub workflow applies it on deploy. If you deploy from Terminal, run `npm run db:migrate:remote` (and `npm run db:migrate:staging` for staging) before `npm run deploy`. Set the super user's address in `SUPERUSER_EMAILS` in `wrangler.jsonc` first (see [HANDOVER.md](HANDOVER.md)).
+Release 0003 (`migrations/0003_user_permissions.sql`) adds one column to `users` for per-person permissions. The GitHub workflow applies it on deploy. If you deploy from Terminal, run `npm run db:migrate:remote` (and `npm run db:migrate:staging` for staging) before `npm run deploy`. Set the super user's address in the `SUPERUSER_EMAILS` secret first (see [HANDOVER.md](HANDOVER.md)).
 
 
 Database changes are numbered files in `migrations/`. They are applied automatically by the GitHub workflow and never edited after release; a change is always a new file.

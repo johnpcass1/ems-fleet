@@ -11,7 +11,7 @@ export default defineConfig(async () => {
           plugins: [
             cloudflareTest({
               wrangler: { configPath: './wrangler.jsonc' },
-              miniflare: { bindings: { TEST_MIGRATIONS: migrations, PBKDF2_ITERATIONS: '1000' } },
+              miniflare: { bindings: { TEST_MIGRATIONS: migrations, PBKDF2_ITERATIONS: '1000', SUPERUSER_EMAILS: 'superuser@example.org' } },
             }),
           ],
           test: { name: 'api', include: ['test/api/**/*.test.ts'], setupFiles: ['./test/api/setup.ts'], testTimeout: 30000 },

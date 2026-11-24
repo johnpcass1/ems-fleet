@@ -1,12 +1,42 @@
 # EMS Fleet
 
-Free, open-source fleet maintenance and ambulance readiness software for emergency medical services, built so that agencies in low-resource settings can track their ambulances without paying for commercial fleet software.
+Free, open-source fleet maintenance and ambulance readiness software for emergency medical services.
 
-It was built for the Guyana EMS ambulance program (GEMA), which is the first agency on the site, and several agencies can now share one site. It tracks which ambulances are in service, what is due for preventive maintenance (PM), problems reported by crews, work orders, parts, and costs (in Guyanese dollars, G$).
+## Why this exists
 
-It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, and R2 file storage. It is built to fit Cloudflare's free plan for a fleet of about 20 to 50 ambulances and 50 to 100 users. See [docs/DEPLOY.md](docs/DEPLOY.md).
+Commercial fleet maintenance and EMS readiness software is priced and built for well-funded agencies in high-income countries. Many EMS systems in low- and middle-income countries, and under-resourced services anywhere, can't pay those licence fees, so they track ambulance maintenance, repairs and daily equipment checks on paper or in spreadsheets, if at all. When an ambulance is out of service for maintenance that could have been planned, or leaves the station missing equipment, patients wait longer for care.
+
+EMS Fleet is meant to close that gap. Any agency can run a modern, secure system that it owns outright:
+
+- **Free to use and adapt.** MIT licensed, with no licence fees, per-user charges or vendor lock-in.
+- **Cheap to run.** It runs on Cloudflare and is sized to fit Cloudflare's free plan for a fleet of about 20 to 50 ambulances and 50 to 100 users. See [docs/DEPLOY.md](docs/DEPLOY.md).
+- **Works on the phones crews already carry.** It's a website, so there's nothing to install, and every screen works at phone size.
+- **The agency owns its data.** Each agency hosts its own copy, with nightly backups it controls.
+
+## Who it's for
+
+National and regional EMS authorities, ministries of health, municipal and volunteer ambulance services, and NGOs that run ambulance fleets, especially where commercial software isn't affordable. It was first built for Guyana's national EMS ambulance program, which is why the sample fleet and demo use Guyanese stations. Nothing in it is specific to one country: each agency sets its own stations, vehicles, maintenance schedules, inspection checklists, roles and currency.
+
+## What it does
+
+- **Fleet status:** which ambulances are in service, limited, in reserve or out (for service, repairs or parts), with a Dispatch screen showing only what's available
+- **Preventive maintenance:** what's due or overdue, by engine hours, days or distance
+- **Problems, work orders and repairs:** crews report problems from their phones, which become work orders with approvals, parts, labour and costs
+- **Shift-start bus checks:** a full ambulance inspection on a phone, with equipment shortages tracked until they are restocked
+- **People and permissions:** seven roles with adjustable permissions, a full activity history, and several agencies on one site, kept completely separate
 
 **Not included on purpose:** fuel tracking, GPS, email or text *alerts* (email for account setup and password reset is optional: see [docs/EMAIL.md](docs/EMAIL.md)), and offline mode. See [docs/HANDOVER.md](docs/HANDOVER.md) for ideas that could be added later.
+
+## Using it for your agency
+
+1. Try the demo first. Click **Try the demo** on the login page of a running copy to use it with sample data and no account.
+2. Fork this repository, or use it as a template.
+3. Follow [docs/DEPLOY.md](docs/DEPLOY.md) to set up your own copy on a free Cloudflare account.
+4. Read [docs/HANDOVER.md](docs/HANDOVER.md) for running it day to day, and [docs/SECURITY.md](docs/SECURITY.md) for how accounts and data are protected.
+
+## Contributing
+
+Issues and pull requests are welcome, especially from people who run or support EMS fleets in low-resource settings. Ideas, bug reports and notes on what does or doesn't fit how your service works are all useful.
 
 ## What people can do
 
@@ -32,7 +62,7 @@ Roles are only the starting point, and there are three levels of administrator:
 | Features (Photo and PDF uploads) | No | No | Yes |
 | **Activity history** (who changed what, and when, including sign-ins) | No | Yes | Yes |
 
-The **super user** is set in code (see [docs/HANDOVER.md](docs/HANDOVER.md)) and has every permission. The **Roles & permissions** screen (Admin group in the sidebar) is a matrix of what each role can do by default, with a "Changed" marker against the built-in defaults, **Reset to default**, one **Save changes** button at the top right for all edits, and a confirmation that says how many people a change affects. A person's own changes beat their role's, which beat the built-in default. Each switch in the per-person drawer says whether it comes from the role default, a role change or a personal change. **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
+The **super user** is set by a Cloudflare secret, `SUPERUSER_EMAILS` (see [docs/HANDOVER.md](docs/HANDOVER.md)) and has every permission. The **Roles & permissions** screen (Admin group in the sidebar) is a matrix of what each role can do by default, with a "Changed" marker against the built-in defaults, **Reset to default**, one **Save changes** button at the top right for all edits, and a confirmation that says how many people a change affects. A person's own changes beat their role's, which beat the built-in default. Each switch in the per-person drawer says whether it comes from the role default, a role change or a personal change. **Photo and PDF uploads are turned off** site-wide until the super user turns them on in Setup > Features; the upload buttons stay visible but disabled so people know the capability exists.
 
 **Agencies.** One site can serve several agencies (organisations). Each has its own vehicles, bases, people, roles, settings, work order numbers, files and activity history, and nobody in one agency can see or change another's. People log in with an **Agency ID** (for example `GEMA`), their email and their password; the same email can be used in two agencies as two separate accounts. The super user adds and manages agencies in **Admin > Agencies** (see [docs/HANDOVER.md](docs/HANDOVER.md), *Agencies*). The first agency is `GEMA`, and existing data belongs to it.
 

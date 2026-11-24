@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { api, as, seedDemo, syncAll, row, byId, E, setUploads, rows, superCookie } from './helpers';
+import { api, as, seedDemo, syncAll, row, byId, E, setUploads, rows, superCookie, SUPER_EMAIL } from './helpers';
 
 const pdf = () => new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
 const png = () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137]);
@@ -194,7 +194,7 @@ describe('uploads switch (Features, super user only)', () => {
     expect((await syncAll(fm)).data.settings[0].features.uploads).toBe(false);
     const log = await rows("SELECT user_email, before_json, after_json FROM audit_log WHERE action = 'features.update' ORDER BY id");
     const last = log[log.length - 1];
-    expect(last.user_email).toBe('johnpcass3@gmail.com');
+    expect(last.user_email).toBe(SUPER_EMAIL);
     expect(JSON.parse(last.before_json).uploads).toBe(true);
     expect(JSON.parse(last.after_json).uploads).toBe(false);
   });

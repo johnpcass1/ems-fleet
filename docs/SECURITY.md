@@ -51,7 +51,7 @@ Several agencies share one database, one Worker and one R2 bucket. The server ke
 
 ## Permissions, the super user and features
 
-- Every permission is decided on the server from the person's row and the agency's settings record on each request, in this order: the super user (from `SUPERUSER_EMAILS` on a home-agency account, set in code, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`); otherwise the role's change (`rolePerms` in the settings record); otherwise the built-in role default (`src/shared/perm.ts`). The browser receives the finished list only to hide buttons.
+- Every permission is decided on the server from the person's row and the agency's settings record on each request, in this order: the super user (from `SUPERUSER_EMAILS` on a home-agency account, set as a Cloudflare secret, never in the database or the browser) has everything; otherwise the person's own override (`users.perm_overrides`); otherwise the role's change (`rolePerms` in the settings record); otherwise the built-in role default (`src/shared/perm.ts`). The browser receives the finished list only to hide buttons.
 - **The three admin levels**
 
   | | Fleet manager | System administrator | Super user |

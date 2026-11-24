@@ -67,8 +67,8 @@ export async function syncAll(cookie: string, since = 0) {
 }
 export const byId = (list: any[], id: string) => list.find((x) => x.id === id);
 
-/** The super user's address, from SUPERUSER_EMAILS in wrangler.jsonc (the API tests run with that config). */
-export const SUPER_EMAIL = 'johnpcass3@gmail.com';
+/** The super user's address in the API tests: SUPERUSER_EMAILS is set in vitest.config.ts (in production it is a Cloudflare secret). */
+export const SUPER_EMAIL = 'superuser@example.org';
 /** Log in as the super user (creating the account on first use in a test). */
 export async function superCookie(): Promise<string> {
   const have = await E.DB.prepare("SELECT 1 FROM users WHERE email = ? AND agency_id = 'GEMA'").bind(SUPER_EMAIL).first();
