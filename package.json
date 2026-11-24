@@ -2,6 +2,7 @@
   "name": "gema-fleet",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "GEMA Fleet: fleet maintenance web app for the Guyana EMS ambulance program (Cloudflare Workers + D1 + R2)",
   "scripts": {

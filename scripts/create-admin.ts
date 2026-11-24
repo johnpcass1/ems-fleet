@@ -41,7 +41,8 @@ function wranglerVar(name: string): string | undefined {
   return t.env === 'staging' ? m[1] ?? m[0] : m[0];
 }
 {
-  const supers = (wranglerVar('SUPERUSER_EMAILS') ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  // SUPERUSER_EMAILS is a Cloudflare secret, so the script can't read it: pass it in the environment (SUPERUSER_EMAILS=... npm run create-admin ...) for this check.
+  const supers = (process.env.SUPERUSER_EMAILS ?? wranglerVar('SUPERUSER_EMAILS') ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
   const home = (wranglerVar('SUPERUSER_AGENCY') ?? 'GEMA').trim().toUpperCase() || 'GEMA';
   if (supers.includes(email) && agency !== home) { console.error(`${email} is a super user address, so it can only be created in the home agency (${home}).`); process.exit(1); }
 }
