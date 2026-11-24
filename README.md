@@ -1,6 +1,8 @@
-# Fleet maintenance (GEMA Fleet)
+# EMS Fleet
 
-Fleet maintenance for ambulance and vehicle fleets. It was built for the Guyana EMS ambulance program (GEMA), which is the first agency on the site, and several agencies can now share one site. It tracks which ambulances are in service, what is due for preventive maintenance (PM), problems reported by crews, work orders, parts, and costs (in Guyanese dollars, G$).
+Free, open-source fleet maintenance and ambulance readiness software for emergency medical services, built so that agencies in low-resource settings can track their ambulances without paying for commercial fleet software.
+
+It was built for the Guyana EMS ambulance program (GEMA), which is the first agency on the site, and several agencies can now share one site. It tracks which ambulances are in service, what is due for preventive maintenance (PM), problems reported by crews, work orders, parts, and costs (in Guyanese dollars, G$).
 
 It runs entirely on Cloudflare: the Worker (API and web pages), a D1 database, and R2 file storage. It is built to fit Cloudflare's free plan for a fleet of about 20 to 50 ambulances and 50 to 100 users. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -84,3 +86,7 @@ docs/         Deploy, hand-over, security and restore guides
 How data reaches the browser: the browser asks `GET /api/sync?since=<cursor>` about every 20 seconds (15 seconds on the Dispatch screen) and whenever the window is focused again. The server returns only what changed since the cursor, including deletions. Every change goes through an action endpoint (for example "start this work order") where the server checks the person's role, validates the input, applies all related changes in one database batch, and writes an audit log row.
 
 The website's look and behaviour is the same as the prototype. Differences: there is a login page, a Users screen, a Roles & permissions screen, an **Activity history** screen (Admin group; super user and system administrators: searchable, filterable by person, type and date, with before and after for every change, sign-ins and CSV export), a Backups panel (super user only), no role switcher, and no "Load sample data" button (administrators can still "Remove sample data").
+
+## License
+
+EMS Fleet is open source under the [MIT License](LICENSE). Any EMS agency, ministry of health or developer may use, change and host it, as long as the copyright notice is kept.
