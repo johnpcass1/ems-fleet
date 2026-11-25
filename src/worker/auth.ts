@@ -12,6 +12,8 @@ export const SESSION_DAYS = 30;
 const SLIDE_AFTER_MS = 6 * 3600e3; // only touch the session row every few hours (saves D1 writes)
 export const LOCK_FAILS = 10;
 export const LOCK_MS = 15 * 60e3;
+/** Failed sign-ins allowed from one network address in the lock window, across all agencies and emails (stops guessing one password across many accounts). */
+export const IP_FAILS = 30;
 
 /* ---------- base64 / hex helpers ---------- */
 const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
@@ -158,6 +160,13 @@ export async function loginState(db: D1Database, agency: string, email: string):
 export async function lockedUntil(db: D1Database, agency: string, email: string): Promise<number | null> {
   return (await loginState(db, agency, email)).lockedUntil;
 }
+/** Failed sign-ins from this network address (a hash of it) in the last lock window, and the moment the oldest counted one drops out. */
+export async function ipLoginState(db: D1Database, ipHash: string): Promise<{ fails: number; lockedUntil: number | null }> {
+  const rows = await all<{ at_ms: number }>(db, "SELECT at_ms FROM auth_throttle WHERE kind = 'login_ip' AND k = ? AND at_ms > ? ORDER BY at_ms DESC LIMIT ?", ipHash, Date.now() - LOCK_MS, IP_FAILS);
+  return { fails: rows.length, lockedUntil: rows.length >= IP_FAILS ? rows[rows.length - 1].at_ms + LOCK_MS : null };
+}
+export const noteIpFailure = (db: D1Database, ipHash: string) => db.prepare("INSERT INTO auth_throttle (kind, k, at_ms) VALUES ('login_ip', ?, ?)").bind(ipHash, Date.now()).run();
+
 /** `agency` is the code typed at sign-in (upper case); it is counted even when no such agency exists, so unknown agencies behave exactly like real ones. */
 export async function recordAttempt(db: D1Database, agency: string, email: string, ok: boolean) {
   const now = nowISO();

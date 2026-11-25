@@ -173,3 +173,24 @@ describe('passwords', () => {
   });
 });
 void loginAs;
+
+describe('failed sign-ins per network address', () => {
+  const login = (ip: string, email: string, password: string) =>
+    api('POST', '/api/auth/login', { body: { agencyId: 'GEMA', email, password }, headers: { 'cf-connecting-ip': ip } });
+
+  it('stops one address guessing across many accounts, without affecting other addresses', async () => {
+    const u = await makeUser('crew');
+    // 30 wrong passwords spread over 30 different addresses: no single account reaches its own lock
+    for (let i = 0; i < 30; i++) expect((await login('203.0.113.7', `spray${i}@gema.test`, 'wrong-password-1')).status).toBe(401);
+    const blocked = await login('203.0.113.7', u.email, PASSWORD); // even the right password is refused from that address for now
+    expect(blocked.status).toBe(429);
+    expect(blocked.json.code).toBe('rate_limited');
+    expect((await login('198.51.100.9', u.email, PASSWORD)).status).toBe(200); // the person can still sign in from anywhere else
+    expect(await rows("SELECT k FROM auth_throttle WHERE kind = 'login_ip' AND k LIKE '%203.0.113.7%'")).toHaveLength(0); // only a hash of the address is stored
+  });
+
+  it('does not count successful sign-ins', async () => {
+    const u = await makeUser('viewer');
+    for (let i = 0; i < 35; i++) expect((await login('192.0.2.44', u.email, PASSWORD)).status).toBe(200);
+  });
+});
