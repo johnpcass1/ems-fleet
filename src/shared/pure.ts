@@ -179,7 +179,10 @@ export function hoursAt(readings: any[], ms: number): number | null {
 }
 
 export function csvCell(v: any): string {
-  const s = v == null ? '' : String(v);
+  // Text starting with = + - @ (or a tab/return) is run as a formula by spreadsheet programs; a leading apostrophe keeps it as text.
+  // Numbers are left alone, so negative amounts stay numbers.
+  let s = v == null ? '' : String(v);
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 export const toCsv = (rows: any[][]) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');

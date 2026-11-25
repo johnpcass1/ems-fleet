@@ -6,7 +6,7 @@ import { Tx, SEQ, all, first, auditStmt } from './db';
 import { activityCsv, listActivity } from './activity';
 import {
   COOKIE, LOCK_FAILS, LOCK_MS, actorFrom, loadRolePerms, blockUntilPasswordChanged, clearSessionCookie, createSession, dummyVerify, hashPassword, iterationsFor, loginState, passwordProblem,
-  recordAttempt, requireAuth, verifyPassword,
+  ipLoginState, noteIpFailure, recordAttempt, requireAuth, sha256Hex, verifyPassword,
 } from './auth';
 import { syncSince } from './sync';
 import * as rules from './rules';
@@ -61,6 +61,12 @@ const BAD_LOGIN = 'Wrong Agency ID, email or password.';
 app.post('/api/auth/login', async (c) => {
   const i = parse(loginIn, await c.req.json().catch(() => ({})));
   const code = normCode(i.agencyId).slice(0, 40); // what was typed, trimmed and upper case; used for the lock count whether or not it is a real agency
+  const ip = await sha256Hex('login\n' + (c.req.header('cf-connecting-ip') || 'unknown')); // only a hash of the network address is stored
+  const ipState = await ipLoginState(c.env.DB, ip);
+  if (ipState.lockedUntil) {
+    const mins = Math.max(1, Math.ceil((ipState.lockedUntil - Date.now()) / 60000));
+    throw new HttpError(429, `Too many failed sign-ins from this network. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`, 'rate_limited');
+  }
   const state = await loginState(c.env.DB, code, i.email);
   const lock = state.lockedUntil;
   if (lock) {
@@ -81,6 +87,7 @@ app.post('/api/auth/login', async (c) => {
   }
   if (!ok) {
     await recordAttempt(c.env.DB, code, i.email, false);
+    await noteIpFailure(c.env.DB, ip);
     // Sign-in history: the address that was tried (never the password; text that is not an email address, such as a password typed
     // into the wrong box, is not kept at all) and the account it belongs to, if there is one. The failure that starts a lock also writes "locked".
     // Failures are written into the agency's own history when the agency exists; for a code that is not an agency there is nobody to show them to, so nothing is written.

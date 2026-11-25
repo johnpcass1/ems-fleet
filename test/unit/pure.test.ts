@@ -68,3 +68,7 @@ describe('money formatting by currency', () => {
     expect(roundMoney(100.67, 'GYD')).toBe(101);
   });
 });
+t('csv: text that a spreadsheet would run as a formula is kept as text; numbers are untouched',()=>{
+  assert.equal(toCsv([['=HYPERLINK("http://x","y")','+1','-cmd','@SUM(A1)','ok']]),`"'=HYPERLINK(""http://x"",""y"")",'+1,'-cmd,'@SUM(A1),ok`);
+  assert.equal(toCsv([[-5,0,12.5]]),'-5,0,12.5');
+});

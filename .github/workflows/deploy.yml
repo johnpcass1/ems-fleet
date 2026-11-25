@@ -14,6 +14,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# The built-in GitHub token can only read the code. Deploys use the Cloudflare secrets, never this token.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
